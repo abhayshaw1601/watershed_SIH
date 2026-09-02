@@ -1,0 +1,107 @@
+"""
+Turns the raw Sentinel-2 stacks + WorldCover labels into aligned,
+model-ready image+mask pairs (model_plan.md 2.5, steps 1-5).
+
+For each date (T1, T2):
+  1. Load R,G,B,NIR (already clipped to AOI by data_download.py)
+  2. Compute NDVI, NDWI -> 6-channel stack
+  3. Reproject/rasterize WorldCover labels onto the imagery's exact grid
+  4. Remap WorldCover codes -> our 7-class scheme
+  5. Save aligned (image_stack.tif, mask.tif) pair per date
+
+Run:  .venv/Scripts/python.exe src/preprocessing.py
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import numpy as np
+import rasterio
+from rasterio.warp import reproject, Resampling
+
+from config import (
+    AOI_JOBS, DATA_RAW, DATA_LABELS, DATA_PROCESSED, WORLDCOVER_TO_MYCLASS,
+)
+
+EPS = 1e-6
+
+
+def compute_indices(stack):
+    """stack: (4, H, W) uint16 in order R,G,B,NIR -> returns NDVI, NDWI float32 in [-1,1]."""
+    red, green, blue, nir = stack.astype("float32")
+    ndvi = (nir - red) / (nir + red + EPS)
+    ndwi = (green - nir) / (green + nir + EPS)
+    return ndvi, ndwi
+
+
+def build_6channel_stack(raw_path, out_path):
+    with rasterio.open(raw_path) as src:
+        stack = src.read()  # (4, H, W): red, green, blue, nir (see data_download.S2_BANDS order)
+        profile = src.profile.copy()
+
+    ndvi, ndwi = compute_indices(stack)
+
+    # Reorder to R,G,B,NIR,NDVI,NDWI and scale reflectance bands to float32 [0,1]-ish
+    rgb_nir = stack.astype("float32") / 10000.0  # Sentinel-2 L2A reflectance scale factor
+    six = np.concatenate([rgb_nir, ndvi[None], ndwi[None]], axis=0)
+
+    profile.update(count=6, dtype="float32")
+    with rasterio.open(out_path, "w", **profile) as dst:
+        dst.write(six)
+        dst.descriptions = ("red", "green", "blue", "nir", "ndvi", "ndwi")
+    print(f"Saved {out_path}  shape={six.shape}")
+    return profile
+
+
+def rasterize_labels(worldcover_path, target_profile, out_path):
+    """Reproject/resample WorldCover onto the imagery grid, then remap classes."""
+    with rasterio.open(worldcover_path) as wc_src:
+        wc_data = wc_src.read(1)
+        wc_crs, wc_transform = wc_src.crs, wc_src.transform
+
+    dst_h, dst_w = target_profile["height"], target_profile["width"]
+    aligned = np.zeros((dst_h, dst_w), dtype="uint8")
+    reproject(
+        source=wc_data,
+        destination=aligned,
+        src_transform=wc_transform, src_crs=wc_crs,
+        dst_transform=target_profile["transform"], dst_crs=target_profile["crs"],
+        dst_resolution=(target_profile["transform"].a, -target_profile["transform"].e),
+        resampling=Resampling.nearest,  # categorical data: never interpolate
+    )
+
+    remapped = np.full_like(aligned, fill_value=6)  # default fallow/unmapped
+    for wc_code, my_class in WORLDCOVER_TO_MYCLASS.items():
+        remapped[aligned == wc_code] = my_class
+
+    mask_profile = target_profile.copy()
+    mask_profile.update(count=1, dtype="uint8", nodata=None)
+    with rasterio.open(out_path, "w", **mask_profile) as dst:
+        dst.write(remapped[None])
+    print(f"Saved {out_path}  shape={remapped.shape}  "
+          f"class counts={dict(zip(*np.unique(remapped, return_counts=True)))}")
+
+
+def main():
+    for job in AOI_JOBS:
+        name = job["name"]
+        worldcover_path = DATA_LABELS / f"{name}_worldcover.tif"
+
+        for date_tag in job["dates"]:
+            raw_path = DATA_RAW / f"{name}_{date_tag}_rgbnir.tif"
+            stack_out = DATA_PROCESSED / f"{name}_{date_tag}_stack6.tif"
+            mask_out = DATA_PROCESSED / f"{name}_{date_tag}_mask.tif"
+
+            print(f"\n--- {name} {date_tag}: building 6-channel stack ---")
+            profile = build_6channel_stack(raw_path, stack_out)
+
+            print(f"--- {name} {date_tag}: rasterizing/remapping labels ---")
+            rasterize_labels(worldcover_path, profile, mask_out)
+
+    print("\nDone. Next: python src/tiling.py")
+
+
+if __name__ == "__main__":
+    main()
