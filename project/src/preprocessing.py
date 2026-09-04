@@ -22,7 +22,7 @@ import rasterio
 from rasterio.warp import reproject, Resampling
 
 from config import (
-    AOI_JOBS, DATA_RAW, DATA_LABELS, DATA_PROCESSED, WORLDCOVER_TO_MYCLASS,
+    AOI_JOBS, DATA_RAW, DATA_LABELS, DATA_PROCESSED, WORLDCOVER_TO_MYCLASS, atomic_raster_write,
 )
 
 EPS = 1e-6
@@ -48,9 +48,7 @@ def build_6channel_stack(raw_path, out_path):
     six = np.concatenate([rgb_nir, ndvi[None], ndwi[None]], axis=0)
 
     profile.update(count=6, dtype="float32")
-    with rasterio.open(out_path, "w", **profile) as dst:
-        dst.write(six)
-        dst.descriptions = ("red", "green", "blue", "nir", "ndvi", "ndwi")
+    atomic_raster_write(out_path, six, profile, descriptions=("red", "green", "blue", "nir", "ndvi", "ndwi"))
     print(f"Saved {out_path}  shape={six.shape}")
     return profile
 
@@ -78,10 +76,23 @@ def rasterize_labels(worldcover_path, target_profile, out_path):
 
     mask_profile = target_profile.copy()
     mask_profile.update(count=1, dtype="uint8", nodata=None)
-    with rasterio.open(out_path, "w", **mask_profile) as dst:
-        dst.write(remapped[None])
+    atomic_raster_write(out_path, remapped[None], mask_profile)
     print(f"Saved {out_path}  shape={remapped.shape}  "
           f"class counts={dict(zip(*np.unique(remapped, return_counts=True)))}")
+
+
+# An NDVI-based refinement (splitting WorldCover's "cropland"/"shrub-grassland"
+# into agriculture-vs-fallow and sparse-veg-vs-barren) was tried here, calibrated
+# by grid search against real Bhuvan AOI-wise LULC statistics for Kadwanchi. It
+# matched the real aggregate proportions closely but, even scoped only to its
+# calibration site, still underperformed plain WorldCover labels once actually
+# retrained (mean IoU 65.9% baseline vs 61.8% all-sites / 63.0% scoped -- barren
+# and fallow IoU both stayed below the unrefined baseline in every variant). A
+# per-pixel NDVI threshold has no spatial coherence, so getting the aggregate
+# proportion right didn't translate into learnable, clean class boundaries.
+# Reverted for that reason -- see documentation.md section 6a for the full
+# experimental history. The real fix remains a real Bhuvan shapefile (actual
+# polygon geometry), not a heuristic proxy.
 
 
 def main():

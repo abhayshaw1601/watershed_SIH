@@ -105,10 +105,11 @@ def _set_active_aoi(key, display_name, lat, lon, trained, model, device):
 def render_picker(model1, device):
     st.html('<div class="wsig-eyebrow">Location</div>')
 
+    current = st.session_state.get("active_aoi")  # None until a location has been picked
     preset_cols = st.columns(len(PRESET_AOIS) + 2)
     for col, preset in zip(preset_cols, PRESET_AOIS):
         if col.button(preset["display_name"], use_container_width=True,
-                      disabled=(st.session_state["active_aoi"]["key"] == preset["key"])):
+                      disabled=(current is not None and current["key"] == preset["key"])):
             try:
                 _set_active_aoi(preset["key"], preset["display_name"], preset["lat"], preset["lon"],
                                  True, model1, device)

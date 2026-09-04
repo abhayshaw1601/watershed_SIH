@@ -37,7 +37,8 @@ from inference_demo import render_lulc_map, render_change_map
 import matplotlib.pyplot as plt
 from rasterio.warp import transform_bounds
 import design
-from aoi_picker import PRESET_AOIS, render_picker, _set_active_aoi
+from aoi_picker import render_picker
+from geo_photo import render_field_verification_tab
 
 st.set_page_config(page_title="Watershed Signal · PS-26015", layout="wide")
 st.html(design.inject_css())
@@ -103,26 +104,30 @@ def load_model1():
 model1, device, epoch, val_loss = load_model1()
 
 if "active_aoi" not in st.session_state:
-    primary = PRESET_AOIS[0]
-    try:
-        _set_active_aoi(primary["key"], primary["display_name"], primary["lat"], primary["lon"],
-                         True, model1, device)
-    except RuntimeError as e:
-        st.error(f"Couldn't load the default site ({primary['display_name']}): {e}")
-        st.stop()
+    st.session_state["active_aoi"] = None  # nothing picked yet -- don't auto-fetch a default
 
 aoi = st.session_state["active_aoi"]
 
 
 # ---------------------------------------------------------------- UI
 
-st.html(design.render_header(aoi["display_name"], aoi["lat"], aoi["lon"], epoch, val_loss, device, aoi["trained"]))
+if aoi is None:
+    st.html(design.render_header(None, None, None, epoch, val_loss, device))
+else:
+    st.html(design.render_header(aoi["display_name"], aoi["lat"], aoi["lon"], epoch, val_loss, device, aoi["trained"]))
+
 render_picker(model1, device)
-aoi = st.session_state["active_aoi"]  # picker may have just replaced it
+aoi = st.session_state["active_aoi"]  # picker may have just set/replaced it
+
+if aoi is None:
+    st.write("")
+    st.html(design.render_pick_location_prompt())
+    st.stop()
+
 st.write("")
 
-tab_lulc, tab_change, tab_health, tab_map, tab_about = st.tabs(
-    ["Land Cover", "Change", "Health & Alerts", "Map", "About"]
+tab_lulc, tab_change, tab_health, tab_map, tab_field, tab_about = st.tabs(
+    ["Land Cover", "Change", "Health & Alerts", "Map", "Field Verification", "About"]
 )
 
 with tab_lulc:
@@ -151,7 +156,7 @@ with tab_change:
 with tab_health:
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.html(design.render_gauge(aoi["health"]))
+        st.pyplot(design.render_gauge_fig(aoi["health"]))
     with col2:
         trend = aoi["trend"]
         trend_word = "improving" if trend > 0.01 else ("declining" if trend < -0.01 else "stable")
@@ -188,6 +193,9 @@ with tab_map:
     ).add_to(fmap)
     folium.LayerControl().add_to(fmap)
     st_folium(fmap, width=None, height=550, use_container_width=True)
+
+with tab_field:
+    render_field_verification_tab(model1, device)
 
 with tab_about:
     st.html(

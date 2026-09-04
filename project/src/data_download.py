@@ -26,7 +26,7 @@ from pystac_client import Client
 
 from config import (
     AOI_JOBS, DATA_RAW, DATA_LABELS,
-    S2_BANDS, STAC_API_URL, STAC_COLLECTION, worldcover_url_for_tile,
+    S2_BANDS, STAC_API_URL, STAC_COLLECTION, atomic_raster_write, worldcover_url_for_tile,
 )
 
 # Date windows to search, keyed by the date-tag requested in an AOI job.
@@ -78,9 +78,7 @@ def clip_scene_to_stack(item, bbox, out_path):
             band_arrays.append(data[0])
 
     stack = np.stack(band_arrays, axis=0)
-    with rasterio.open(out_path, "w", **profile) as dst:
-        dst.write(stack)
-        dst.descriptions = tuple(S2_BANDS)
+    atomic_raster_write(out_path, stack, profile, descriptions=tuple(S2_BANDS))
     print(f"Saved {out_path}  shape={stack.shape}  date={item.datetime.date()}  "
           f"cloud={item.properties.get('eo:cloud_cover'):.1f}%")
 
@@ -93,8 +91,7 @@ def download_worldcover(bbox, worldcover_tile, out_path):
         data, transform = rio_mask(src, geom, crop=True)
         profile = src.profile.copy()
         profile.update(height=data.shape[1], width=data.shape[2], transform=transform)
-    with rasterio.open(out_path, "w", **profile) as dst:
-        dst.write(data)
+    atomic_raster_write(out_path, data, profile)
     print(f"Saved {out_path}  shape={data.shape}")
 
 

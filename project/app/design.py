@@ -7,8 +7,6 @@ in mono type like a survey readout.
 Kept separate from streamlit_app.py so the page logic isn't buried in HTML/CSS.
 """
 
-import math
-
 # ---------------------------------------------------------------- tokens
 
 PAPER = "#FFFFFF"
@@ -110,16 +108,26 @@ Government of India &middot; Ministry of Rural Development &middot; Smart India 
 </div>"""
 
 
-def render_header(aoi_name: str, lat: float, lon: float, epoch: int, val_loss: float, device: str,
-                   trained: bool = True) -> str:
-    if trained:
-        badge = f'<span style="font-family:{FONT_MONO}; font-size:10px; letter-spacing:0.08em; ' \
-                f'color:{SAGE}; border:1px solid {SAGE}; border-radius:3px; padding:2px 6px; ' \
-                f'margin-left:8px; vertical-align:middle;">TRAINED SITE</span>'
+def render_header(aoi_name: str | None, lat: float | None, lon: float | None, epoch: int, val_loss: float,
+                   device: str, trained: bool = True) -> str:
+    """aoi_name=None renders the pre-selection state -- no location chosen yet, so no
+    AOI/coordinates/trained-badge to show (the model/device info is still valid, since
+    that's tied to the loaded checkpoint, not to any location)."""
+    if aoi_name is None:
+        aoi_value = f'<span style="color:{INK_MUTED};">Not selected yet</span>'
+        coord_value = f'<span style="color:{INK_MUTED};">&mdash;</span>'
     else:
-        badge = f'<span style="font-family:{FONT_MONO}; font-size:10px; letter-spacing:0.08em; ' \
-                f'color:{AMBER}; border:1px solid {AMBER}; border-radius:3px; padding:2px 6px; ' \
-                f'margin-left:8px; vertical-align:middle;">LIVE &middot; UNSEEN LOCATION</span>'
+        if trained:
+            badge = f'<span style="font-family:{FONT_MONO}; font-size:10px; letter-spacing:0.08em; ' \
+                    f'color:{SAGE}; border:1px solid {SAGE}; border-radius:3px; padding:2px 6px; ' \
+                    f'margin-left:8px; vertical-align:middle;">TRAINED SITE</span>'
+        else:
+            badge = f'<span style="font-family:{FONT_MONO}; font-size:10px; letter-spacing:0.08em; ' \
+                    f'color:{AMBER}; border:1px solid {AMBER}; border-radius:3px; padding:2px 6px; ' \
+                    f'margin-left:8px; vertical-align:middle;">LIVE &middot; UNSEEN LOCATION</span>'
+        aoi_value = aoi_name.replace("_", " ") + badge
+        coord_value = f"{lat:.3f}&deg;N&nbsp;&nbsp;{lon:.3f}&deg;E"
+
     return f"""{render_masthead()}
 <div style="display:flex; justify-content:space-between; align-items:flex-end;
 border-bottom:1px solid {RULE}; padding:10px 0 16px 0; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
@@ -131,8 +139,8 @@ Watershed&nbsp;Signal
 </div>
 </div>
 <div style="display:flex; gap:22px; flex-wrap:wrap; border:1px solid {RULE}; border-radius:4px; padding:10px 16px;">
-{_telemetry_chip("AOI", aoi_name.replace("_", " ") + badge)}
-{_telemetry_chip("COORDINATES", f"{lat:.3f}&deg;N&nbsp;&nbsp;{lon:.3f}&deg;E")}
+{_telemetry_chip("AOI", aoi_value)}
+{_telemetry_chip("COORDINATES", coord_value)}
 {_telemetry_chip("MODEL", f"epoch {epoch} &middot; loss {val_loss:.3f}")}
 {_telemetry_chip("DEVICE", str(device).upper())}
 </div>
@@ -147,8 +155,16 @@ text-transform:uppercase;">{label}</div>
 </div>"""
 
 
-def render_gauge(value: float, label: str = "HEALTH INDEX", size: int = 200) -> str:
-    """Hand-built SVG radial dial, styled as a flat official seal (double ring, no glow)."""
+def render_gauge_fig(value: float, label: str = "HEALTH INDEX"):
+    """Matplotlib donut gauge, styled as a flat official seal -- rendered via st.pyplot(),
+    not raw SVG through st.html(). The hand-built SVG version silently failed to render
+    (twice, through two different theme rewrites) despite testing correctly as a string in
+    isolation -- matplotlib+st.pyplot is the pathway already proven reliable elsewhere in
+    this same app (the LULC/change maps), so this rebuilds the gauge on that instead of
+    debugging the SVG path a third time."""
+    import matplotlib.pyplot as plt
+    import numpy as np
+
     value = max(0.0, min(100.0, value))
     if value >= 65:
         accent = SAGE
@@ -157,39 +173,37 @@ def render_gauge(value: float, label: str = "HEALTH INDEX", size: int = 200) -> 
     else:
         accent = DANGER
 
-    cx = cy = size / 2
-    r_outer_seal = size * 0.47
-    r_track, r_progress = size * 0.4, size * 0.35
-    circumference = 2 * math.pi * r_progress
-    dash = circumference * (value / 100)
+    fig, ax = plt.subplots(figsize=(2.8, 2.8), subplot_kw={"aspect": "equal"})
+    fig.patch.set_facecolor(PAPER)
 
-    ticks = []
+    # tick marks (20, every 18deg, major every 5th) drawn as short radial lines
     for i in range(20):
-        angle = math.radians(i * 18 - 90)
+        angle = np.radians(90 - i * 18)  # start at 12 o'clock, clockwise
         major = i % 5 == 0
-        r1 = size * 0.44
-        r2 = r1 - (8 if major else 4)
-        x1, y1 = cx + r1 * math.cos(angle), cy + r1 * math.sin(angle)
-        x2, y2 = cx + r2 * math.cos(angle), cy + r2 * math.sin(angle)
-        ticks.append(
-            f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-            f'stroke="{RULE if not major else INK_MUTED}" stroke-width="{1.5 if major else 1}"/>'
-        )
+        r1, r2 = 1.16, 1.16 - (0.07 if major else 0.035)
+        ax.plot([r1 * np.cos(angle), r2 * np.cos(angle)],
+                [r1 * np.sin(angle), r2 * np.sin(angle)],
+                color=INK_MUTED if major else RULE, linewidth=1.2 if major else 0.8, zorder=3)
 
-    return f"""<div style="width:{size}px; height:{size}px; display:block;">
-<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}" style="display:block;">
-<circle cx="{cx}" cy="{cy}" r="{r_outer_seal}" fill="none" stroke="{RULE}" stroke-width="1"/>
-{''.join(ticks)}
-<circle cx="{cx}" cy="{cy}" r="{r_track}" fill="none" stroke="{PAPER_ALT}" stroke-width="10"/>
-<circle cx="{cx}" cy="{cy}" r="{r_progress}" fill="none" stroke="{accent}" stroke-width="10"
-stroke-linecap="butt" stroke-dasharray="{dash:.1f} {circumference:.1f}"
-transform="rotate(-90 {cx} {cy})"/>
-<text x="{cx}" y="{cy - 4}" text-anchor="middle" font-family="{FONT_MONO}" font-size="{size*0.2}"
-font-weight="600" fill="{INK}">{value:.0f}</text>
-<text x="{cx}" y="{cy + size*0.12}" text-anchor="middle" font-family="{FONT_MONO}" font-size="{size*0.045}"
-letter-spacing="1.5" fill="{INK_MUTED}">{label}</text>
-</svg>
-</div>"""
+    # outer seal ring
+    ax.add_patch(plt.Circle((0, 0), 1.22, fill=False, edgecolor=RULE, linewidth=1, zorder=1))
+    # background track (donut)
+    ax.pie([1], radius=1.0, colors=[PAPER_ALT], startangle=90, counterclock=False,
+           wedgeprops=dict(width=0.24, edgecolor=PAPER, linewidth=0))
+    # value arc (donut), remainder made invisible
+    ax.pie([value, 100 - value], radius=1.0, colors=[accent, PAPER], startangle=90, counterclock=False,
+           wedgeprops=dict(width=0.24, edgecolor=PAPER, linewidth=0))
+
+    ax.text(0, 0.12, f"{value:.0f}", ha="center", va="center", fontsize=30, fontweight="bold",
+            color=INK, family="monospace", zorder=4)
+    ax.text(0, -0.22, label, ha="center", va="center", fontsize=8.5, color=INK_MUTED,
+            family="monospace", zorder=4)
+
+    ax.set_xlim(-1.35, 1.35)
+    ax.set_ylim(-1.35, 1.35)
+    ax.axis("off")
+    fig.tight_layout(pad=0.2)
+    return fig
 
 
 SEVERITY_STYLE = {
@@ -230,4 +244,18 @@ def render_readout_stat(label: str, value: str, accent: str = INK) -> str:
     return f"""<div class="wsig-panel">
 <div class="wsig-eyebrow">{label}</div>
 <div style="font-family:{FONT_MONO}; font-size:24px; color:{accent};">{value}</div>
+</div>"""
+
+
+def render_pick_location_prompt() -> str:
+    return f"""<div class="wsig-panel" style="max-width:640px;">
+<div class="wsig-eyebrow">Start here</div>
+<div style="font-family:{FONT_DISPLAY}; font-size:22px; color:{INK}; margin-top:4px;">
+Pick a location to begin
+</div>
+<p style="color:{INK_MUTED}; margin:8px 0 0 0; font-size:14px;">
+Choose one of the three trained sites above, or search/enter coordinates for anywhere else.
+The model fetches live satellite imagery for that spot and runs the full analysis &mdash;
+land cover, change detection, health score, and alerts &mdash; usually in 20&ndash;60 seconds.
+</p>
 </div>"""

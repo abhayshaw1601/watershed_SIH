@@ -15,6 +15,8 @@ AOI-agnostic.
 
 from pathlib import Path
 
+import rasterio
+
 # ---- Paths ----
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_RAW = PROJECT_ROOT / "data" / "raw"
@@ -25,6 +27,24 @@ OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 
 for d in (DATA_RAW, DATA_LABELS, DATA_PROCESSED, MODELS_DIR, OUTPUTS_DIR):
     d.mkdir(parents=True, exist_ok=True)
+
+
+def atomic_raster_write(out_path, data, profile, descriptions=None):
+    """Write a raster to a temp path first, then atomically rename into place.
+    Without this, a crash or interruption mid-write (killing the app,
+    a network drop mid-download) can leave a truncated, corrupt file sitting
+    exactly at the path the rest of the pipeline trusts as complete -- it
+    opens fine (header/metadata reads OK) but fails on the actual pixel read
+    later, often in a totally different function, which is confusing to
+    debug. Hit for real in this project (see documentation.md) after several
+    abrupt session restarts left a truncated live-fetched raster on disk."""
+    out_path = Path(out_path)
+    tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+    with rasterio.open(tmp_path, "w", **profile) as dst:
+        dst.write(data)
+        if descriptions:
+            dst.descriptions = descriptions
+    tmp_path.replace(out_path)
 
 # ---- AOI (see module docstring) ----
 AOI_NAME = "kadwanchi_watershed"
@@ -51,9 +71,10 @@ WORLDCOVER_URL = worldcover_url_for_tile(WORLDCOVER_TILE)
 
 # ---- Auxiliary training-only AOIs (single date, no change-detection pair) ----
 # Kadwanchi (above) is the PRIMARY AOI: used for the demo, change detection, and
-# health/alerts story. These two exist purely to fix Model 1's class imbalance --
+# health/alerts story. These exist purely to fix Model 1's class imbalance --
 # Kadwanchi's ground truth is ~97% agriculture+sparse-vegetation, so dense
-# vegetation and barren/degraded land had almost no training signal. Both
+# vegetation, barren/degraded land, and (still, even after Kadwanchi's own 9km
+# enlargement) rivers/large water bodies had little-to-no training signal. Each
 # verified via a ground-truth class-distribution check before adding (same
 # process that caught Kadwanchi's own water gap):
 #   - Tamhini Ghat, Western Ghats, Pune dist., Maharashtra: 63.1% tree cover
@@ -61,6 +82,13 @@ WORLDCOVER_URL = worldcover_url_for_tile(WORLDCOVER_TILE)
 #     bare/sparse vegetation (mining exposes ground unambiguously; regular
 #     "degraded" farmland did NOT register as bare in this global dataset --
 #     tried Anantapur city and the Chambal ravine belt first, both failed)
+#   - Jayakwadi Dam / Godavari river, Paithan, Aurangabad dist., Maharashtra:
+#     49.0% water (one of Maharashtra's largest reservoirs, 2.909 km^3
+#     capacity) -- added after a live "unseen location" query (Jamshedpur,
+#     a river through a dense industrial city) showed the model failing to
+#     trace a real river correctly. Deliberately NOT a city -- rivers are
+#     core watershed infrastructure and squarely in scope; "generalizes to
+#     any Indian city" is not (see documentation.md for that reasoning).
 AUX_AOIS = [
     {
         "name": "tamhini_ghat_forest",
@@ -71,6 +99,11 @@ AUX_AOIS = [
         "name": "donimalai_barren",
         "bbox": (76.5517, 15.0184, 76.6357, 15.0994),  # ~9km x 9km, EPSG:4326
         "worldcover_tile": "N15E075",
+    },
+    {
+        "name": "jayakwadi_dam_water",
+        "bbox": (75.3270, 19.4453, 75.4130, 19.5263),  # ~9km x 9km, EPSG:4326
+        "worldcover_tile": "N18E075",
     },
 ]
 

@@ -1,0 +1,48 @@
+# PS-26015 Watershed Signal — pinned dependencies.
+#
+# torch/torchvision are deliberately NOT listed below, and must be installed
+# as an EXPLICITLY VERSION-PINNED PAIR, not just "latest from the CUDA index":
+#
+#   .venv/Scripts/python.exe -m pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+#   .venv/Scripts/python.exe -m pip install -r requirements.txt
+#
+# Two real failure modes hit in this project, both from getting this install
+# wrong (see documentation.md for the full incident):
+#   1. Plain `pip install -r requirements.txt` (or any other package pulling
+#      torch in as a transitive dependency) silently grabs a CPU-only build
+#      from the default PyPI index on Windows -- no error, inference just
+#      quietly gets much slower.
+#   2. Installing torch and torchvision UNPINNED (even both together, even
+#      both from the CUDA index) can resolve to a mismatched pair -- e.g.
+#      torch 2.6.0 + torchvision 0.29.0, which is not the version torch 2.6.0
+#      actually ships against (0.21.0 is). The mismatch doesn't fail at
+#      install time -- it fails later, at import, as
+#      `RuntimeError: operator torchvision::nms does not exist`, when
+#      torchvision's compiled extensions don't match the loaded torch ABI.
+#      Explicit version pins on BOTH packages together is the only reliable
+#      fix; re-verify with `pip list | grep torch` after any reinstall.
+#
+# If you ever see the app's header say "DEVICE: CPU" on a machine with an
+# NVIDIA GPU, or an import-time `torchvision::nms` error, re-run the pinned
+# install line above.
+
+numpy==2.5.2
+pandas==3.0.5
+matplotlib==3.11.1
+scipy==1.18.1
+scikit-image==0.26.0
+pillow==12.3.0
+
+rasterio==1.5.1
+geopandas==1.1.4
+shapely==2.1.2
+pyproj==3.7.2
+pystac-client==0.9.0
+boto3==1.43.86
+
+segmentation_models_pytorch==0.5.0
+
+streamlit==1.63.0
+streamlit-folium==0.27.4
+folium==0.20.0
+requests==2.34.2
