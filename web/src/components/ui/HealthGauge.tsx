@@ -16,7 +16,8 @@ export default function HealthGauge({ score, size = 200 }: { score: number; size
 
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-[135deg]">
+      <svg width={size} height={size} className="-rotate-[135deg]" role="img" aria-label={`Watershed condition score ${Math.round(clamped)} out of 100`}>
+        <title>Condition score {Math.round(clamped)}/100</title>
         <circle
           cx={center}
           cy={center}

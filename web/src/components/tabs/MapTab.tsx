@@ -16,7 +16,8 @@ export default function MapTab({ site, meta }: { site: string; meta: SiteMeta })
   const center: [number, number] = [(south + north) / 2, (west + east) / 2];
   const overlayImg = `/demo-data/${site}/${meta.has_change_pair ? "t2" : "s1"}.png`;
 
-  const legend = Object.entries(meta.class_names).filter(([cls]) => cls !== "255");
+  const legend = Object.entries(meta.class_names);
+  const nodataPixels = (meta.class_breakdown["255"]?.pixels ?? 0) > 0;
 
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_16rem]">
@@ -34,8 +35,9 @@ export default function MapTab({ site, meta }: { site: string; meta: SiteMeta })
       </div>
 
       <div>
-        <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground">Overlay opacity</div>
+        <label htmlFor="overlay-opacity" className="font-mono text-xs uppercase tracking-wider text-muted-foreground">Overlay opacity</label>
         <input
+          id="overlay-opacity"
           type="range"
           min={0}
           max={1}
@@ -47,7 +49,7 @@ export default function MapTab({ site, meta }: { site: string; meta: SiteMeta })
 
         <div className="mt-8 font-mono text-xs uppercase tracking-wider text-muted-foreground">Legend</div>
         <div className="mt-3 space-y-2">
-          {legend.map(([cls, name]) => (
+          {legend.filter(([cls]) => cls !== "255" || nodataPixels).map(([cls, name]) => (
             <div key={cls} className="flex items-center gap-2.5">
               <span className="h-3 w-3 shrink-0 rounded-sm" style={{ background: rgbToCss(meta.class_colors[cls]) }} />
               <span className="text-xs">{name}</span>

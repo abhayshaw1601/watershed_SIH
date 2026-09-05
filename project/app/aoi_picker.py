@@ -151,7 +151,6 @@ def _set_active_aoi(key, display_name, lat, lon, trained, model, device):
     with st.status(f"Analyzing {display_name}...", expanded=True) as status:
         def on_step(msg):
             status.update(label=msg)
-            st.write(f":gray[{msg}]")
 
         (results, change_map, health, trend, alerts,
          watershed_mask, drainage_network, pour_point, watershed_caveat) = run_pipeline(
@@ -181,7 +180,7 @@ def render_picker(model1, device):
                 _set_active_aoi(preset["key"], preset["display_name"], preset["lat"], preset["lon"],
                                  True, model1, device)
                 st.rerun()
-            except RuntimeError as e:
+            except Exception as e:
                 st.error(f"Couldn't load {preset['display_name']}: {e}")
 
     with preset_cols[-2]:
@@ -201,7 +200,7 @@ def render_picker(model1, device):
                         _set_active_aoi(f"search_{lat:.3f}_{lon:.3f}", name.split(",")[0], lat, lon,
                                          False, model1, device)
                         st.rerun()
-                    except RuntimeError as e:
+                    except Exception as e:
                         st.error(f"Couldn't complete this location: {e}")
 
     with preset_cols[-1]:
@@ -213,5 +212,5 @@ def render_picker(model1, device):
                     _set_active_aoi(f"coord_{lat:.3f}_{lon:.3f}", f"{lat:.3f}, {lon:.3f}", lat, lon,
                                      False, model1, device)
                     st.rerun()
-                except RuntimeError as e:
+                except Exception as e:
                     st.error(f"Couldn't complete this location: {e}")

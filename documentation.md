@@ -70,7 +70,7 @@ auditable reason.
 | Satellite imagery | Sentinel-2 L2A, via Earth Search STAC API (AWS Open Data) | Global, free, ~5-day revisit | Automatic, no account needed |
 | Training labels (in use) | ESA WorldCover 10m | Global, free | Automatic, no account needed |
 | Training labels (future upgrade) | Bhuvan LULC (ISRO/NRSC), India-specific | India | **Needs personal registration** on bhuvan.nrsc.gov.in |
-| Field validation (not yet built) | SRISHTI-DRISHTI geo-tagged photos | Project-specific | Needs hackathon-provided extract or manual collection |
+| Field validation (built, needs real photos) | SRISHTI-DRISHTI geo-tagged photos | Project-specific | Needs hackathon-provided extract or real field photos |
 
 Key point: satellite imagery + WorldCover labels are available for **any
 coordinates on Earth's land surface, automatically** — switching the AOI is
@@ -748,22 +748,13 @@ bugs. Fixed in `src/*.py` and the notebook generator, then verified:
 
 ## 10. Roadmap / open decisions
 
-- Multi-AOI training pool — **done** (see section 5, v3). Not yet retrained
-  in Colab on the pooled set; next actual run should show whether dense
-  vegetation/barren improve the way water did after the AOI enlargement.
-- Add a "pick a location" live flow to the app: user selects/searches an
-  AOI, app fetches fresh imagery and runs inference on demand. Data-fetch
-  side already supports any coordinates; needs a UI hook.
-- Cloud deployment: training stays on Colab (GPU-heavy, occasional);
-  proposed to wrap inference in a FastAPI backend, containerize, deploy to
-  a serverless platform (Google Cloud Run recommended — free tier, scales
-  to zero, matches the PS's own "cloud-native"/"API-based" preferred-tech
-  wording). Not started; needs the user's cloud account.
-- Real Bhuvan LULC labels once registered.
-- Geo-coded photo validation step (model_plan.md section 2.8).
-- Watershed boundary polygon for real geofencing (hook already exists in
-  `tier1_fallback.py`).
-- SIH presentation/pitch materials — not started.
+- Multi-AOI training pool — **done** (4 sites; retrained twice in Colab, latest 49.1%/78.2% with fallow recovered from 0.000 — see section 9). Next: follow-up retrain if the AOI set changes again, and targeted work on fallow (7.5%, weakest class).
+- "Pick a location" live flow — **done** (unified picker drives every tab, presets + search/coordinates, TRAINED SITE vs LIVE badge; first-load picks nothing until the user chooses).
+- Cloud deployment — **done** (Streamlit Community Cloud `deploy` branch live; `project/Dockerfile` Cloud Run fallback verified locally; `web/` Next.js frontend). Remaining risk: Community Cloud ~1GB RAM tightness (measured ~800MB pipeline-only).
+- Real Bhuvan LULC labels once registered (still pending).
+- Geo-coded photo validation — **built** (`geo_photo.py` + Field Verification tab, synthetic-tested); still needs real photos for its first real entry.
+- Watershed boundary polygon — **built as DEM-derived approximation** with geofencing active; a verified official boundary remains a nice-to-have, not a blocker.
+- SIH presentation/pitch materials — **drafted** (`pitch_deck_draft.md`, `scaling_narrative.md`); keep numbers in sync with section 9 (49.1%/78.2%, 4 sites).
 
 ## 11. Source-document context
 

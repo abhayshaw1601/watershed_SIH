@@ -118,9 +118,9 @@ def main():
         raise RuntimeError(f"No trained Model 1 checkpoint at {ckpt_path} — run model1_unet.py first.")
 
     model = build_model().to(device)
-    ckpt = torch.load(ckpt_path, map_location=device)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
     model.load_state_dict(ckpt["model_state"])
-    print(f"Loaded Model 1 (epoch {ckpt['epoch']}, val_loss={ckpt['val_loss']:.4f})")
+    print(f"Loaded Model 1 (epoch {ckpt['epoch']}, val_mean_iou={ckpt.get('val_mean_iou', ckpt.get('val_loss', 'n/a'))})")
 
     stack_t1 = DATA_PROCESSED / f"{AOI_NAME}_T1_stack6.tif"
     stack_t2 = DATA_PROCESSED / f"{AOI_NAME}_T2_stack6.tif"

@@ -50,6 +50,25 @@ st.html(design.inject_css())
 MODEL1_PATH = MODELS_DIR / "model1_lulc_unet.pt"
 
 
+# ---------------------------------------------------------------- model + active-AOI state
+
+@st.cache_resource
+def load_model1():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = build_model1().to(device)
+    try:
+        ckpt = torch.load(MODEL1_PATH, map_location=device, weights_only=True)
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not load checkpoint at {MODEL1_PATH} ({e}). If this file was "
+            "uploaded or copied mid-write, delete it and re-upload a complete "
+            "model1_lulc_unet.pt, then reload the page."
+        )
+    model.load_state_dict(ckpt["model_state"])
+    model.eval()
+    return model, device, ckpt["epoch"], ckpt.get("val_loss", ckpt.get("val_mean_iou", 0.0))
+
+
 # ---------------------------------------------------------------- sidebar / model intake
 
 st.sidebar.html(
@@ -67,10 +86,18 @@ if not MODEL1_PATH.exists():
     up_model = st.sidebar.file_uploader("Add model1_lulc_unet.pt", type=["pt"], label_visibility="collapsed")
     if up_model is not None:
         MODEL1_PATH.write_bytes(up_model.getvalue())
+        load_model1.clear()  # cache is keyed on zero args, not file content -- without this the old weights persist
         st.sidebar.success("Checkpoint saved.")
         st.rerun()
 else:
     st.sidebar.html(f'<span style="color:{design.SAGE};">● found</span>')
+    with st.sidebar.expander("Replace checkpoint"):
+        up_replace = st.file_uploader("Replace model1_lulc_unet.pt", type=["pt"], label_visibility="collapsed")
+        if up_replace is not None:
+            MODEL1_PATH.write_bytes(up_replace.getvalue())
+            load_model1.clear()
+            st.sidebar.success("Checkpoint replaced.")
+            st.rerun()
 
 st.sidebar.caption(
     "Imagery isn't uploaded — every location (presets included) is fetched live from Sentinel-2 "
@@ -96,16 +123,7 @@ the checkpoint here:
     st.stop()
 
 
-# ---------------------------------------------------------------- model + active-AOI state
-
-@st.cache_resource
-def load_model1():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = build_model1().to(device)
-    ckpt = torch.load(MODEL1_PATH, map_location=device)
-    model.load_state_dict(ckpt["model_state"])
-    model.eval()
-    return model, device, ckpt["epoch"], ckpt["val_loss"]
+# ---------------------------------------------------------------- model load (definition is above, with sidebar)
 
 
 model1, device, epoch, val_loss = load_model1()
@@ -146,6 +164,7 @@ with tab_lulc:
         render_lulc_map(aoi["class_t2"], axes[1], "T2")
         fig.patch.set_facecolor(design.PAPER)
         st.pyplot(fig)
+        plt.close(fig)
     st.html(design.render_legend(CLASS_NAMES, CLASS_COLORS))
 
 with tab_change:
@@ -155,6 +174,7 @@ with tab_change:
         render_change_map(aoi["change_map"], ax, "")
         fig.patch.set_facecolor(design.PAPER)
         st.pyplot(fig)
+        plt.close(fig)
 
     st.html('<div class="wsig-eyebrow" style="margin-top:8px;">Area by change type</div>')
     summary = summarize_changes(aoi["change_map"])
@@ -163,7 +183,9 @@ with tab_change:
 with tab_health:
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.pyplot(design.render_gauge_fig(aoi["health"]))
+        gauge_fig = design.render_gauge_fig(aoi["health"])
+        st.pyplot(gauge_fig)
+        plt.close(gauge_fig)
     with col2:
         trend = aoi["trend"]
         trend_word = "improving" if trend > 0.01 else ("declining" if trend < -0.01 else "stable")
@@ -249,6 +271,10 @@ records, each connected to the currently-active AOI's satellite evidence at its 
 &mdash; and to any geo-tagged Field Verification photo taken nearby. This is the actual
 "integrated spatial analysis," not just documentation, the PS asks for.
 </p>
+<p style="color:{design.INK_MUTED}; margin:4px 0 0 0; font-size:12px;">
+Note: on the hosted demo these records persist for this session only (the log resets on
+app reboot/redeploy) — export anything you need before leaving.
+</p>
 </div>"""
     )
     st.write("")
@@ -258,8 +284,8 @@ records, each connected to the currently-active AOI's satellite evidence at its 
         iv_name = c1.text_input("Name", placeholder="e.g. Check Dam #3")
         iv_type = c2.selectbox("Type", reg.INTERVENTION_TYPES)
         c3, c4 = st.columns(2)
-        iv_lat = c3.number_input("Latitude", value=aoi["lat"], format="%.5f", key="iv_lat")
-        iv_lon = c4.number_input("Longitude", value=aoi["lon"], format="%.5f", key="iv_lon")
+        iv_lat = c3.number_input("Latitude", value=aoi["lat"], format="%.5f", key=f"iv_lat_{aoi['key']}")
+        iv_lon = c4.number_input("Longitude", value=aoi["lon"], format="%.5f", key=f"iv_lon_{aoi['key']}")
         iv_notes = st.text_input("Notes (optional)")
         if st.button("Add intervention", type="primary") and iv_name:
             reg.add_intervention(iv_name, iv_type, iv_lat, iv_lon, iv_notes)
@@ -329,7 +355,8 @@ Hackathon 2026.
 <ul style="color:{design.TEXT_MUTED};">
 <li><b style="color:{design.TEXT};">Model 1</b> — a U-Net (ResNet18 encoder) reads a 6-channel
 satellite stack (R, G, B, NIR, NDVI, NDWI) and classifies every 10m patch into one of
-7 land-cover types. Trained on 3 real sites (Kadwanchi, Tamhini Ghat, Donimalai) chosen to
+7 land-cover types. Trained on 4 real sites (Kadwanchi, Tamhini Ghat, Donimalai,
+Jayakwadi Dam) chosen to
 cover the classes any single site lacked — see the presets above.</li>
 <li><b style="color:{design.TEXT};">Change detection</b> — a rule-based diff of two Model 1
 passes, no separate training needed.</li>

@@ -59,42 +59,47 @@
     ]
   },
   "has_change_pair": false,
-  "health_score": 60.5,
+  "health_score": 62.5,
   "class_breakdown": {
     "0": {
       "name": "Water body / conservation structure",
-      "pixels": 0,
-      "hectares": 0.0
+      "pixels": 126,
+      "hectares": 1.26
     },
     "1": {
       "name": "Dense vegetation / forest",
-      "pixels": 67217,
-      "hectares": 672.17
+      "pixels": 92769,
+      "hectares": 927.69
     },
     "2": {
       "name": "Agriculture / cropland",
-      "pixels": 66340,
-      "hectares": 663.4
+      "pixels": 62188,
+      "hectares": 621.88
     },
     "3": {
       "name": "Sparse vegetation / grassland",
-      "pixels": 218427,
-      "hectares": 2184.27
+      "pixels": 197321,
+      "hectares": 1973.21
     },
     "4": {
       "name": "Barren / degraded land",
-      "pixels": 21594,
-      "hectares": 215.94
+      "pixels": 25179,
+      "hectares": 251.79
     },
     "5": {
       "name": "Built-up / settlement",
-      "pixels": 6652,
-      "hectares": 66.52
+      "pixels": 5327,
+      "hectares": 53.27
     },
     "6": {
       "name": "Fallow / bare agricultural land",
-      "pixels": 2680,
-      "hectares": 26.8
+      "pixels": 0,
+      "hectares": 0.0
+    },
+    "255": {
+      "name": "No data / no coverage",
+      "pixels": 440634,
+      "hectares": 4406.34
     }
   }
 }

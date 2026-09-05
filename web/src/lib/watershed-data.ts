@@ -49,6 +49,7 @@ export const PRESET_SITES = [
   { key: "kadwanchi_watershed", displayName: "Kadwanchi Watershed", state: "Maharashtra" },
   { key: "tamhini_ghat_forest", displayName: "Tamhini Ghat Forest", state: "Maharashtra" },
   { key: "donimalai_barren", displayName: "Donimalai Iron Mine", state: "Karnataka" },
+  { key: "jayakwadi_dam_water", displayName: "Jayakwadi Dam", state: "Maharashtra" },
 ] as const;
 
 export type SiteKey = (typeof PRESET_SITES)[number]["key"];
@@ -73,7 +74,7 @@ export function sortAlerts(alerts: Alert[]): Alert[] {
 }
 
 export function healthBand(score: number): "sage" | "amber" | "danger" {
-  if (score >= 70) return "sage";
-  if (score >= 40) return "amber";
+  if (score >= 65) return "sage";
+  if (score >= 35) return "amber";
   return "danger";
 }

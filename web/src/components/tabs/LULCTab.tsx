@@ -9,8 +9,8 @@ export default function LULCTab({ site, meta }: { site: string; meta: SiteMeta }
   const base = `/demo-data/${site}`;
 
   const breakdown = Object.entries(meta.class_breakdown)
-    .filter(([cls]) => cls !== "255")
     .sort((a, b) => b[1].pixels - a[1].pixels);
+  const nodataEntry = Object.entries(meta.class_breakdown).find(([cls]) => cls === "255");
 
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_20rem]">
@@ -62,6 +62,18 @@ export default function LULCTab({ site, meta }: { site: string; meta: SiteMeta }
               <span className="shrink-0 font-mono text-xs text-muted-foreground">{info.hectares} ha</span>
             </div>
           ))}
+          {nodataEntry && nodataEntry[1].pixels > 0 && (
+            <div className="flex items-center justify-between gap-3 border-t border-foreground/10 pt-3">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span
+                  className="h-3 w-3 shrink-0 rounded-sm"
+                  style={{ background: rgbToCss(meta.class_colors["255"]) }}
+                />
+                <span className="truncate text-sm text-muted-foreground">{nodataEntry[1].name} (no coverage)</span>
+              </div>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">{nodataEntry[1].hectares} ha</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

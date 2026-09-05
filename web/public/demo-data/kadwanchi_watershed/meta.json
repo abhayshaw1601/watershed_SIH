@@ -63,38 +63,38 @@
   "class_breakdown": {
     "0": {
       "name": "Water body / conservation structure",
-      "pixels": 16415,
-      "hectares": 164.15
+      "pixels": 13990,
+      "hectares": 139.9
     },
     "1": {
       "name": "Dense vegetation / forest",
-      "pixels": 3566,
-      "hectares": 35.66
+      "pixels": 4769,
+      "hectares": 47.69
     },
     "2": {
       "name": "Agriculture / cropland",
-      "pixels": 607322,
-      "hectares": 6073.22
+      "pixels": 604386,
+      "hectares": 6043.86
     },
     "3": {
       "name": "Sparse vegetation / grassland",
-      "pixels": 107475,
-      "hectares": 1074.75
+      "pixels": 116874,
+      "hectares": 1168.74
     },
     "4": {
       "name": "Barren / degraded land",
-      "pixels": 8996,
-      "hectares": 89.96
+      "pixels": 6538,
+      "hectares": 65.38
     },
     "5": {
       "name": "Built-up / settlement",
-      "pixels": 23873,
-      "hectares": 238.73
+      "pixels": 25907,
+      "hectares": 259.07
     },
     "6": {
       "name": "Fallow / bare agricultural land",
-      "pixels": 4817,
-      "hectares": 48.17
+      "pixels": 0,
+      "hectares": 0.0
     }
   },
   "change_class_names": {
@@ -133,24 +133,24 @@
   },
   "change_summary": {
     "No change": {
-      "pixels": 705485,
-      "hectares": 7054.85
+      "pixels": 702952,
+      "hectares": 7029.52
     },
     "New water/conservation structure": {
-      "pixels": 2691,
-      "hectares": 26.91
+      "pixels": 1185,
+      "hectares": 11.85
     },
     "New construction/built-up": {
-      "pixels": 7039,
-      "hectares": 70.39
+      "pixels": 8273,
+      "hectares": 82.73
     },
     "Vegetation/water loss (degradation)": {
-      "pixels": 44,
-      "hectares": 0.44
+      "pixels": 78,
+      "hectares": 0.78
     },
     "Vegetation gain": {
-      "pixels": 57205,
-      "hectares": 572.05
+      "pixels": 59976,
+      "hectares": 599.76
     }
   },
   "ndvi_trend": -0.0522,
@@ -159,19 +159,19 @@
       "severity": "ALERT",
       "rule": "new_construction",
       "message": "Possible unauthorized construction detected \u2014 recommend field verification.",
-      "area_ha": 70.39
+      "area_ha": 82.73
     },
     {
       "severity": "RECOMMEND",
       "rule": "degradation_intervention",
       "message": "Vegetation/water loss with declining NDVI trend \u2014 soil/water conservation structure recommended in this zone.",
-      "area_ha": 0.44
+      "area_ha": 0.78
     },
     {
       "severity": "INFO",
       "rule": "new_water_unverified",
       "message": "New water body detected outside known project boundaries \u2014 worth a field check.",
-      "area_ha": 26.91
+      "area_ha": 11.85
     }
   ]
 }

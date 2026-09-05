@@ -11,7 +11,7 @@ const ARCHITECTURE = [
     number: "01",
     title: "Model 1 — U-Net, ResNet18 encoder",
     description:
-      "Reads a 6-channel stack (R, G, B, NIR, NDVI, NDWI) and classifies every 10m Sentinel-2 patch into one of 7 land-cover types. Trained on 3 real sites chosen to cover the classes any single site lacked.",
+      "Reads a 6-channel stack (R, G, B, NIR, NDVI, NDWI) and classifies every 10m Sentinel-2 patch into one of 7 land-cover types. Trained on 4 real sites chosen to cover the classes any single site lacked.",
   },
   {
     number: "02",
@@ -52,6 +52,12 @@ const SITES = [
     coords: "15.059°N, 76.594°E",
     region: "Sandur, Ballari dist., Karnataka",
     description: "Exposed-ground mine site, added to cover the barren/degraded class. Single-date, training only.",
+  },
+  {
+    name: "Jayakwadi Dam",
+    coords: "19.486°N, 75.370°E",
+    region: "Paithan, Aurangabad dist., Maharashtra",
+    description: "Large reservoir/river site, added to cover rivers and large water bodies. Single-date, training only.",
   },
 ];
 
@@ -102,7 +108,7 @@ export default function About() {
 
       <section className="mt-24">
         <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground">— Trained sites</div>
-        <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-3">
+        <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {SITES.map((site) => (
             <div key={site.name} className="rounded-2xl border border-foreground/10 p-6">
               <h3 className="font-display text-xl">{site.name}</h3>

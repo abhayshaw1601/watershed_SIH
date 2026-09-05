@@ -30,12 +30,17 @@ export default function WatershedApp() {
   const [meta, setMeta] = useState<SiteMeta | null>(null);
   const [tab, setTab] = useState<TabKey>("land-cover");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     fetch(`/demo-data/${siteKey}/meta.json`)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status} loading demo data for ${siteKey}`);
+        return res.json();
+      })
       .then((data: SiteMeta) => {
         if (!cancelled) {
           setMeta(data);
@@ -43,6 +48,12 @@ export default function WatershedApp() {
           if (!data.has_change_pair && (tab === "change" || tab === "health")) {
             setTab("land-cover");
           }
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : String(e));
+          setLoading(false);
         }
       });
     return () => {
@@ -89,12 +100,14 @@ export default function WatershedApp() {
       </div>
 
       {/* ---- Tab bar ---- */}
-      <div className="mt-8 flex gap-1 overflow-x-auto border-b border-foreground/10">
+      <div className="mt-8 flex gap-1 overflow-x-auto border-b border-foreground/10" role="tablist" aria-label="Watershed views">
         {TABS.map((t) => {
           const disabled = t.needsChangePair && meta ? !meta.has_change_pair : false;
           return (
             <button
               key={t.key}
+              role="tab"
+              aria-selected={tab === t.key}
               onClick={() => !disabled && setTab(t.key)}
               disabled={disabled}
               className={cn(
@@ -111,7 +124,17 @@ export default function WatershedApp() {
 
       {/* ---- Tab content ---- */}
       <div className="mt-8">
-        {loading || !meta ? (
+        {loadError ? (
+          <div className="rounded-2xl border border-foreground/10 p-10 text-center">
+            <p className="text-sm text-muted-foreground">Couldn&apos;t load demo data: {loadError}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 rounded-full border border-foreground/15 px-5 py-2.5 text-sm hover:border-foreground/40"
+            >
+              Retry
+            </button>
+          </div>
+        ) : loading || !meta ? (
           <div className="aspect-video w-full animate-pulse rounded-2xl bg-foreground/5" />
         ) : (
           <>

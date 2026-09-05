@@ -80,10 +80,15 @@ def wgs84_bounds(profile) -> dict:
 
 
 def class_hectares(class_map: np.ndarray, pixel_area_m2: float = 100.0) -> dict:
+    from config import NODATA_CLASS
     out = {}
     for cls in range(NUM_CLASSES):
         count = int(np.sum(class_map == cls))
         out[str(cls)] = {"name": CLASS_NAMES[cls], "pixels": count, "hectares": round(count * pixel_area_m2 / 10000, 2)}
+    n_nodata = int(np.sum(class_map == NODATA_CLASS))
+    if n_nodata:
+        out[str(NODATA_CLASS)] = {"name": CLASS_NAMES[NODATA_CLASS], "pixels": n_nodata,
+                                  "hectares": round(n_nodata * pixel_area_m2 / 10000, 2)}
     return out
 
 
@@ -92,12 +97,12 @@ def main():
     print(f"Device: {device}")
     ckpt_path = MODELS_DIR / "model1_lulc_unet.pt"
     model = build_model().to(device)
-    ckpt = torch.load(ckpt_path, map_location=device)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
     model.load_state_dict(ckpt["model_state"])
-    print(f"Loaded Model 1 (epoch {ckpt['epoch']}, val_mean_iou={ckpt.get('val_mean_iou', 'n/a')})")
+    print(f"Loaded Model 1 (epoch {ckpt['epoch']}, val_mean_iou={ckpt.get('val_mean_iou', ckpt.get('val_loss', 'n/a'))})")
 
     sites = [{"key": AOI_NAME, "dates": ["T1", "T2"]}] + [
-        {"key": a["name"], "dates": ["S1"]} for a in AUX_AOIS if a["name"] in ("tamhini_ghat_forest", "donimalai_barren")
+        {"key": a["name"], "dates": ["S1"]} for a in AUX_AOIS
     ]
 
     index = []

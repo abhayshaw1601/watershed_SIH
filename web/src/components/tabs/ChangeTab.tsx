@@ -13,6 +13,8 @@ export default function ChangeTab({ site, meta }: { site: string; meta: SiteMeta
 
   const rows = Object.entries(meta.change_summary);
   const total = rows.reduce((sum, [, v]) => sum + v.hectares, 0);
+  const nameToCls: Record<string, string> = {};
+  for (const [cls, n] of Object.entries(meta.change_class_names ?? {})) nameToCls[n] = cls;
 
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_22rem]">
@@ -25,7 +27,7 @@ export default function ChangeTab({ site, meta }: { site: string; meta: SiteMeta
         <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground">Change summary</div>
         <div className="mt-4 overflow-hidden rounded-2xl border border-foreground/10">
           {rows.map(([name, stats], i) => {
-            const clsIdx = Object.entries(meta.change_class_names ?? {}).find(([, n]) => n === name)?.[0] ?? "0";
+            const clsIdx = nameToCls[name] ?? "0";
             const color = meta.change_class_colors?.[clsIdx];
             const pct = total > 0 ? ((stats.hectares / total) * 100).toFixed(1) : "0.0";
             return (

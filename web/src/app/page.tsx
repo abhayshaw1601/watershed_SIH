@@ -127,13 +127,13 @@ export default function Home() {
         <div className="grid grid-cols-1 gap-16 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="font-display text-4xl leading-[0.95] sm:text-5xl">
-              Three trained sites.
+              Four trained sites.
               <br />
               <span className="text-muted-foreground">Untouched inference anywhere.</span>
             </h2>
             <div className="mt-10 grid grid-cols-3 gap-8 border-t border-foreground/10 pt-8">
               <div>
-                <div className="font-display text-3xl">3</div>
+                <div className="font-display text-3xl">4</div>
                 <div className="mt-1 font-mono text-xs uppercase tracking-wider text-muted-foreground">
                   Training Sites
                 </div>
@@ -162,7 +162,7 @@ export default function Home() {
       {/* --------------------------------------------------------------- Orgs */}
       <section className="border-y border-foreground/10 py-10">
         <div className="mx-auto max-w-7xl px-6 sm:px-10">
-          <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground">Used by researchers at</div>
+          <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground">Built with data from</div>
         </div>
         <div className="mt-6">
           <Marquee speed="slow">
