@@ -181,6 +181,9 @@ with tab_map:
     from streamlit_folium import st_folium
     import folium
 
+    if aoi.get("watershed_caveat"):
+        st.caption(f"⚠️ {aoi['watershed_caveat']}")
+
     class_t2, profile = aoi["class_t2"], aoi["profile"]
     height, width = class_t2.shape
     color_img = np.zeros((height, width, 3), dtype="uint8")
@@ -199,6 +202,28 @@ with tab_map:
     folium.raster_layers.ImageOverlay(
         image=color_img, bounds=[[miny, minx], [maxy, maxx]], opacity=0.7, name="LULC (Model 1)",
     ).add_to(fmap)
+
+    # Watershed boundary + drainage network, DEM-derived (watershed_delineation.py).
+    # Rendered as their own toggle-able overlays (RGBA, transparent where absent)
+    # rather than baked into color_img, so they read as an outline/lines on top
+    # of the LULC fill instead of obscuring it.
+    if aoi.get("watershed_mask") is not None:
+        from scipy import ndimage
+        boundary = aoi["watershed_mask"] & ~ndimage.binary_erosion(aoi["watershed_mask"], iterations=2)
+        boundary_rgba = np.zeros((height, width, 4), dtype="uint8")
+        boundary_rgba[boundary] = (255, 140, 0, 255)
+        folium.raster_layers.ImageOverlay(
+            image=boundary_rgba, bounds=[[miny, minx], [maxy, maxx]], opacity=1.0,
+            name="Watershed boundary (approx., DEM-derived)",
+        ).add_to(fmap)
+    if aoi.get("drainage_network") is not None:
+        drainage_rgba = np.zeros((height, width, 4), dtype="uint8")
+        drainage_rgba[aoi["drainage_network"]] = (0, 200, 255, 255)
+        folium.raster_layers.ImageOverlay(
+            image=drainage_rgba, bounds=[[miny, minx], [maxy, maxx]], opacity=1.0,
+            name="Drainage network (DEM-derived)",
+        ).add_to(fmap)
+
     folium.LayerControl().add_to(fmap)
     # returned_objects=[] -- without this, st_folium reports back bounds/zoom/center on
     # every render, which are never bit-for-bit identical run to run, so Streamlit treats

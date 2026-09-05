@@ -1,41 +1,30 @@
-# Streamlit Community Cloud deploy manifest.
+# PS-26015 Watershed Signal — pinned dependencies.
 #
-# Community Cloud just runs `pip install -r requirements.txt` (no separate
-# pre-install step like the Dockerfile has), so unlike the main
-# requirements.txt, torch/torchvision ARE listed here.
+# torch/torchvision are deliberately NOT listed below, and must be installed
+# as an EXPLICITLY VERSION-PINNED PAIR, not just "latest from the CUDA index":
 #
-# Pinned to 2.9.1 / 0.24.1, NOT the 2.6.0 / 0.21.0 pair used for local dev
-# and the Docker image: as of 2026-09, PyPI's CPU wheel index
-# (download.pytorch.org/whl/cpu) has pruned torch 2.6.0 entirely -- deploying
-# with that pin fails at `pip install` with "Could not find a version that
-# satisfies the requirement torch==2.6.0", not an import-time error. 2.9.1 is
-# the oldest version still available there as of this writing, paired with
-# its officially matching torchvision (2.X -> 0.(X+15), confirmed against
-# pytorch/vision's compatibility table). Re-verified locally against the real
-# checkpoint before pinning (not just "should work"): built the model, loaded
-# model1_lulc_unet.pt, ran load_state_dict, and did a real forward pass on
-# the actual Kadwanchi T1 stack -- all 7 classes came out correctly.
+#   .venv/Scripts/python.exe -m pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+#   .venv/Scripts/python.exe -m pip install -r requirements.txt
 #
-# If this pin ever 404s again the same way, check
-# https://download.pytorch.org/whl/cpu/torch/ for what's currently available
-# and re-run the same verification (don't just bump the number blindly --
-# this project has hit real torch/torchvision/segmentation-models-pytorch API
-# mismatches from unverified version jumps before).
+# Two real failure modes hit in this project, both from getting this install
+# wrong (see documentation.md for the full incident):
+#   1. Plain `pip install -r requirements.txt` (or any other package pulling
+#      torch in as a transitive dependency) silently grabs a CPU-only build
+#      from the default PyPI index on Windows -- no error, inference just
+#      quietly gets much slower.
+#   2. Installing torch and torchvision UNPINNED (even both together, even
+#      both from the CUDA index) can resolve to a mismatched pair -- e.g.
+#      torch 2.6.0 + torchvision 0.29.0, which is not the version torch 2.6.0
+#      actually ships against (0.21.0 is). The mismatch doesn't fail at
+#      install time -- it fails later, at import, as
+#      `RuntimeError: operator torchvision::nms does not exist`, when
+#      torchvision's compiled extensions don't match the loaded torch ABI.
+#      Explicit version pins on BOTH packages together is the only reliable
+#      fix; re-verify with `pip list | grep torch` after any reinstall.
 #
-# Measured previously with the 2.6.0/0.21.0 CPU build: ~800MB peak RSS
-# running the real pipeline end-to-end (import + model load + two full-AOI
-# forward passes) against Community Cloud's ~1GB free-tier cap -- tight but
-# workable for a low-concurrency demo. Not yet re-measured against 2.9.1 (a
-# newer torch build could plausibly use more or less); if the app OOMs in
-# practice, the fallback is Google Cloud Run with the project's Dockerfile
-# (verified working, far more headroom) -- see documentation.md "Deployment".
-#
-# To use: on the `deploy` branch only, `cp requirements-streamlit-cloud.txt
-# requirements.txt` before committing -- do not merge that swap into main.
-
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.9.1
-torchvision==0.24.1
+# If you ever see the app's header say "DEVICE: CPU" on a machine with an
+# NVIDIA GPU, or an import-time `torchvision::nms` error, re-run the pinned
+# install line above.
 
 numpy==2.5.2
 pandas==3.0.5
@@ -52,6 +41,16 @@ pystac-client==0.9.0
 boto3==1.43.86
 
 segmentation_models_pytorch==0.5.0
+
+# Real watershed catchment/drainage delineation from DEM data (Copernicus
+# GLO-30 via src/dem_fetch.py). Pulls in numba/llvmlite as a REQUIRED
+# dependency (not optional, despite pysheds' own docs suggesting otherwise --
+# checked via a real `pip install`, not assumed). pysheds 0.5 (latest on
+# PyPI, checked) calls the now-removed `np.in1d`; src/watershed_delineation.py
+# shims it to `np.isin` (numpy's own official replacement) before import --
+# same class of fix as the segmentation-models-pytorch mismatches above, see
+# documentation.md section 8.
+pysheds==0.5
 
 streamlit==1.63.0
 streamlit-folium==0.27.4
