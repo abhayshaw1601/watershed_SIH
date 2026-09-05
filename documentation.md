@@ -140,7 +140,9 @@ needs the user's manual registration.
   adding, against real downloaded data: 48.9% water in the actual tiled
   labels (398,139 of 814,494 pixels), matching the ground-truth check
   almost exactly, plus 648 real training tiles generated successfully.
-  Not yet retrained/re-evaluated — that's the next Colab run.
+  Retrained and evaluated — see section 8, item 7 for the split-methodology
+  fix this evaluation depended on, and section 9 for the real per-class
+  results (mean IoU 68.2%, water IoU 94.3%).
 
 AOI is set in `project/src/config.py` (`AOI_NAME`, `AOI_CENTER_LAT/LON`,
 `AOI_BBOX`, `WORLDCOVER_TILE`) and mirrored in the Colab notebook's Config
@@ -517,11 +519,46 @@ bugs. Fixed in `src/*.py` and the notebook generator, then verified:
    Fixed in both `src/*.py` and the notebook generator (two mirrored
    `predict_class_map`/`render_lulc_map`/`compute_health_score` copies —
    the full-pipeline cell and the load-checkpoint-and-demo cell).
+7. **Train/val split had two forms of leakage (not caught until deliberately
+   re-checking the evaluation methodology before trusting its numbers).**
+   `tiling.py`'s original split shuffled every *individual augmented file*
+   (8 rotated/flipped copies per base patch) and took a random 15% —
+   two problems: (a) a patch's own rotated/flipped copies could land on
+   both sides of the split, so val performance partly measured recognizing
+   the same ground under a different flip, not real generalization; (b)
+   the shuffle was global and random, so spatially adjacent, overlapping
+   patches (stride < patch size) frequently ended up on both sides too,
+   which are highly correlated and leak the same way. Neither the audit
+   documents' claim of an existing "region-level split" nor
+   `documentation.md` itself had ever actually described this correctly —
+   checked directly against the real `tiling.py` code, not assumed. Fixed:
+   the split decision is now made per base patch (before augmentation, so
+   all 8 copies of a patch always share one split) and per AOI+date via a
+   contiguous spatial block (the highest-row patches held out as val),
+   not a random shuffle — every AOI still appears in both train and val,
+   just via a real spatial separation instead of an interleaved shuffle.
+   Verified after the fix: re-tiled real data, confirmed 0/264 base patches
+   had augmented copies split across train and val, and every AOI/date
+   still had both a train and val share. Fixed in both `tiling.py` and the
+   notebook generator. Re-evaluating the existing checkpoint (still trained
+   under the old split, since retraining needs Colab GPU time) against the
+   corrected val set gave real, leak-free numbers — see section 9.
 
 ## 9. Known limitations (current state, be honest about these)
 
-- **Resolved as of the v3 multi-AOI pool**: Model 1 now scores IoU > 0.46
-  on all 7 classes (mean IoU 65.9%, pixel accuracy 81.2% — see section 5).
+- **Resolved as of the v3.1 multi-AOI pool (Kadwanchi + Tamhini Ghat +
+  Donimalai + Jayakwadi Dam), re-evaluated on the corrected leak-free split
+  (section 8, item 7)**: mean IoU **68.2%**, pixel accuracy **86.6%**, every
+  one of the 7 classes present in the val set with real support. Per-class
+  IoU: water 94.3%, agriculture 81.8%, dense vegetation 76.3%, sparse
+  vegetation 61.4%, fallow 64.3%, barren 52.6%, built-up 46.7%. Water in
+  particular is now genuinely strong (precision 95.2%, recall 98.9%) after
+  being a near-total failure (IoU 0.000) before the AOI enlargement and
+  Jayakwadi Dam addition — confusion matrix visually inspected, not just
+  the printed numbers trusted (`outputs/model1_confusion_matrix_corrected_split.png`).
+  Built-up and barren remain the weakest classes (smallest support in the
+  val set — 52,400 and 70,328 px respectively, vs. water's 1,045,464 —
+  worth more training examples if pursued further, not a training bug.
   Previously dense vegetation and barren land were near-total failures
   (IoU 0.004 / 0.000); pooling in Tamhini Ghat and Donimalai fixed both
   without regressing the other classes. The earlier "small, imbalanced
