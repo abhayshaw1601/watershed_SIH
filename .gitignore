@@ -37,6 +37,12 @@ project/outputs/*.html
 # Claude Code project-local state
 .claude/
 
+# web/ -- Next.js frontend (marketing site + /try demo)
+web/node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+
 # Editors / IDEs
 .vscode/
 .idea/

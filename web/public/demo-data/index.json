@@ -1,0 +1,20 @@
+[
+  {
+    "key": "kadwanchi_watershed",
+    "has_change_pair": true,
+    "health_score": 66.2,
+    "display_last": "t2"
+  },
+  {
+    "key": "tamhini_ghat_forest",
+    "has_change_pair": false,
+    "health_score": 79.8,
+    "display_last": "s1"
+  },
+  {
+    "key": "donimalai_barren",
+    "has_change_pair": false,
+    "health_score": 60.5,
+    "display_last": "s1"
+  }
+]
