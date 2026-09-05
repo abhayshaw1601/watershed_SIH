@@ -140,9 +140,11 @@ needs the user's manual registration.
   adding, against real downloaded data: 48.9% water in the actual tiled
   labels (398,139 of 814,494 pixels), matching the ground-truth check
   almost exactly, plus 648 real training tiles generated successfully.
-  Retrained and evaluated — see section 8, item 7 for the split-methodology
-  fix this evaluation depended on, and section 9 for the real per-class
-  results (mean IoU 68.2%, water IoU 94.3%).
+  Retrained and evaluated — see section 8, items 7-8 for two real bugs
+  caught while validating this (a split-leakage fix and a Kadwanchi
+  data-coverage fix), and section 9 for the real per-class results (mean
+  IoU 54.1%, water IoU 83.4% — a retrain against the coverage fix is the
+  logical next step, needs Colab GPU time).
 
 AOI is set in `project/src/config.py` (`AOI_NAME`, `AOI_CENTER_LAT/LON`,
 `AOI_BBOX`, `WORLDCOVER_TILE`) and mirrored in the Colab notebook's Config
@@ -543,22 +545,79 @@ bugs. Fixed in `src/*.py` and the notebook generator, then verified:
    notebook generator. Re-evaluating the existing checkpoint (still trained
    under the old split, since retraining needs Colab GPU time) against the
    corrected val set gave real, leak-free numbers — see section 9.
+8. **`clip_scene_to_stack` silently truncated rasters when the matched
+   scene's footprint didn't fully cover the AOI -- caught on Kadwanchi's
+   own primary AOI, not an edge case.** Discovered while building the
+   intervention registry's `latlon_to_pixel`: a round-trip test on
+   Kadwanchi's own `AOI_CENTER_LAT/LON` mapped nowhere near the grid center
+   (row 118 of 575, not ~287). Traced (not guessed) to two compounding
+   bugs:
+   - `clip_scene_to_stack` used `rio_mask(..., crop=True)`, which crops to
+     the *intersection* of the requested geometry and the source scene's
+     actual extent -- when the matched scene doesn't fully cover the
+     bbox, the output array itself comes back SMALLER than requested,
+     not full-sized with nodata pixels inside it (unlike the earlier
+     Donimalai case in item 6, where the array was full-sized and the gap
+     showed up as real zero-valued pixels). Nothing downstream could
+     detect a shape mismatch, since the array was just quietly the wrong
+     size. Confirmed directly: the matched T1 scene's real 4326 bounds
+     topped out at 19.894°N, 0.030° (~3.3km) short of `AOI_BBOX`'s
+     19.924°N edge.
+   - `search_scene` sorted candidates by cloud cover only, with no
+     coverage check -- so even though a same-cloud-cover (0%),
+     full-bbox-coverage alternative (`S2B_43QEC_20200226_1_L2A`) existed
+     in the very same search window, it was never considered.
+   Fixed both: `clip_scene_to_stack` now reprojects each band into a
+   destination array pre-sized to the FULL requested bbox (same CRS, so
+   this is a resample/pad, not a real reprojection) -- any genuinely
+   uncovered area now falls out as legitimate nodata, handled correctly
+   everywhere downstream via the existing `NODATA_CLASS` sentinel (item 6),
+   instead of silently shrinking the array. `search_scene` now prefers
+   full-coverage candidates when any exist in the window, falling back to
+   the lowest-cloud partial match (with a printed warning) only when none
+   do. Verified against real data at every step: before the fix, Kadwanchi
+   showed 40.7% nodata once the truncation itself was fixed (i.e., the
+   true extent of a real, pre-existing coverage gap that had been silently
+   hidden by the array simply being smaller); after both fixes, Kadwanchi
+   fetches 0% nodata (switched to the full-coverage `43QEC` tile), and the
+   `latlon_to_pixel` round-trip lands the AOI center pixel-exact at the
+   grid center. Kadwanchi's cached local T1/T2 rasters and mask files were
+   also stale from an earlier, smaller AOI_BBOX (575x799, ~5.8km tall) --
+   refreshed to the current 9km bbox (912x847) as part of verifying this
+   fix, which is also what surfaced the coverage gap in the first place.
+   Fixed in both `data_download.py` and the notebook generator.
 
 ## 9. Known limitations (current state, be honest about these)
 
-- **Resolved as of the v3.1 multi-AOI pool (Kadwanchi + Tamhini Ghat +
-  Donimalai + Jayakwadi Dam), re-evaluated on the corrected leak-free split
-  (section 8, item 7)**: mean IoU **68.2%**, pixel accuracy **86.6%**, every
-  one of the 7 classes present in the val set with real support. Per-class
-  IoU: water 94.3%, agriculture 81.8%, dense vegetation 76.3%, sparse
-  vegetation 61.4%, fallow 64.3%, barren 52.6%, built-up 46.7%. Water in
-  particular is now genuinely strong (precision 95.2%, recall 98.9%) after
-  being a near-total failure (IoU 0.000) before the AOI enlargement and
-  Jayakwadi Dam addition — confusion matrix visually inspected, not just
-  the printed numbers trusted (`outputs/model1_confusion_matrix_corrected_split.png`).
-  Built-up and barren remain the weakest classes (smallest support in the
-  val set — 52,400 and 70,328 px respectively, vs. water's 1,045,464 —
-  worth more training examples if pursued further, not a training bug.
+- **Real per-class numbers, evaluated on the FULLY corrected Kadwanchi
+  extent (section 8, items 7 and 8) — supersedes an earlier, premature
+  68.2%/94.3%-water report that turned out to be based on the
+  still-truncated Kadwanchi data**: mean IoU **54.1%**, pixel accuracy
+  **80.8%**. Per-class IoU: water 83.4%, dense vegetation 73.9%,
+  agriculture 71.6%, sparse vegetation 52.0%, barren 43.4%, built-up 35.4%,
+  fallow 19.0%. Confusion matrix visually inspected, not just the printed
+  numbers trusted (`outputs/model1_confusion_matrix_corrected_split.png`):
+  fallow's errors are structurally sensible (mostly confused with
+  agriculture and sparse vegetation, which it's genuinely spectrally
+  similar to — not a broken pipeline), matching this project's own
+  long-documented history of fallow/barren being persistently hard classes
+  (section 6a).
+  **Why this dropped from the earlier 68.2%/94.3% report, not just a
+  different random split**: item 8's fix corrected Kadwanchi's cached data
+  from a truncated ~5.8km-tall extent to the real, full 9km `AOI_BBOX` —
+  and since Colab training almost certainly fetched data through the same
+  (now-fixed) buggy `clip_scene_to_stack`, the currently-deployed checkpoint
+  likely never actually trained on roughly a third of Kadwanchi's intended
+  area at all. The new, harder tiles from that previously-missing region
+  are genuinely out-of-distribution for it — this number is real and
+  honest, not a regression to explain away. **Next step: retrain in Colab**
+  against the now-correctly-covering tile set (needs GPU time, can't be
+  done locally) before quoting an updated figure.
+  Water remains the strongest class by far (precision 98.6%) after being a
+  near-total failure (IoU 0.000) before the AOI enlargement and Jayakwadi
+  Dam addition. Built-up and fallow remain the weakest (smallest val-set
+  support — 84,352 and 26,240 px respectively, vs. water's 1,277,240) and
+  are the most likely to improve most from the coverage-gap retrain above.
   Previously dense vegetation and barren land were near-total failures
   (IoU 0.004 / 0.000); pooling in Tamhini Ghat and Donimalai fixed both
   without regressing the other classes. The earlier "small, imbalanced
