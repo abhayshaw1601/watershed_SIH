@@ -618,6 +618,32 @@ bugs. Fixed in `src/*.py` and the notebook generator, then verified:
   Dam addition. Built-up and fallow remain the weakest (smallest val-set
   support — 84,352 and 26,240 px respectively, vs. water's 1,277,240) and
   are the most likely to improve most from the coverage-gap retrain above.
+  **Update — the retrain against the coverage fix landed, and it was worse,
+  not better**: mean IoU dropped to 48.1%, and Fallow collapsed completely
+  (precision/recall/IoU all exactly 0.000). Root-caused, not shrugged off:
+  `model1_unet.py`'s loss (`DiceLoss + CrossEntropyLoss`, no per-class
+  weighting) and checkpoint selection (lowest aggregate `val_loss`, no
+  per-class check) both structurally deprioritize a class that's ~0.25-0.6%
+  of pixels — it barely moves an aggregate loss either way, so there's
+  little gradient pressure to learn it, and a checkpoint where it's
+  completely collapsed can still "win" on overall loss. Fixed: `ce = nn.CrossEntropyLoss(weight=class_weights)`
+  with real, data-computed median-frequency-balanced weights
+  (`compute_class_weights`, scans the actual training tiles — Fallow came
+  out at 23.8x, Water at 1.0x baseline) instead of plain inverse-frequency
+  (which would have swung to ~150x and likely destabilized training).
+  Checkpoint selection now uses mean IoU (computed from a confusion matrix
+  `run_epoch` already accumulates during the val pass, no extra forward
+  pass) instead of aggregate `val_loss`. Smoke-tested locally (2 epochs,
+  real GPU, real data) before trusting it: Fallow's recall went from
+  0.000 to 0.589 immediately — precision is still low this early (expected,
+  frozen-encoder phase, not comparable to a full 25-epoch run), but the
+  mechanism is confirmed working, not just "should work." Fixed in both
+  `model1_unet.py` and the notebook generator (which needed its evaluation-
+  helper cell moved earlier, since training now needs `metrics_from_confusion`
+  per-epoch, not just in the final report — verified with a precise
+  definition-before-use check across cells, not just per-cell syntax).
+  **Next step, same as before: needs a fresh Colab retrain to actually see
+  the fixed numbers.**
   Previously dense vegetation and barren land were near-total failures
   (IoU 0.004 / 0.000); pooling in Tamhini Ghat and Donimalai fixed both
   without regressing the other classes. The earlier "small, imbalanced

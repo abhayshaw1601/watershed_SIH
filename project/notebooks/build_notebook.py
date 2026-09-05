@@ -469,87 +469,12 @@ cells.append(code(
 "        return image, mask",
 ))
 
-# ---------------------------------------------------------------- 9. Model 1
-cells.append(md(
-"## 5. Model 1 — LULC U-Net",
-"ResNet18 encoder (ImageNet weights), 6-channel input, 7-class output. "
-"Frozen encoder for the first few epochs, then fine-tuned end-to-end.",
-))
-cells.append(code(
-"import time",
-"import segmentation_models_pytorch as smp",
-"",
-"def build_model1():",
-"    return smp.Unet(encoder_name='resnet18', encoder_weights='imagenet',",
-"                     in_channels=IN_CHANNELS, classes=NUM_CLASSES)",
-"",
-"def set_encoder_trainable(model, trainable: bool):",
-"    for p in model.encoder.parameters():",
-"        p.requires_grad = trainable",
-"",
-"def run_epoch(model, loader, loss_fn, optimizer, scaler, device, train):",
-"    model.train(train)",
-"    total_loss, n_batches = 0.0, 0",
-"    for images, masks in loader:",
-"        images, masks = images.to(device), masks.to(device)",
-"        with torch.set_grad_enabled(train):",
-"            with torch.autocast(device_type=device.type, enabled=(device.type=='cuda')):",
-"                logits = model(images)",
-"                loss = loss_fn(logits, masks)",
-"            if train:",
-"                optimizer.zero_grad(set_to_none=True)",
-"                scaler.scale(loss).backward()",
-"                scaler.step(optimizer)",
-"                scaler.update()",
-"        total_loss += loss.item()",
-"        n_batches += 1",
-"    return total_loss / max(n_batches, 1)",
-))
-cells.append(code(
-"device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')",
-"print('Device:', device)",
-"",
-"train_ds = WatershedTileDataset('train')",
-"val_ds = WatershedTileDataset('val')",
-"train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2)",
-"val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)",
-"print(f'Train tiles: {len(train_ds)}  Val tiles: {len(val_ds)}')",
-"",
-"model1 = build_model1().to(device)",
-"set_encoder_trainable(model1, False)",
-"",
-"dice = smp.losses.DiceLoss(mode='multiclass')",
-"ce = torch.nn.CrossEntropyLoss()",
-"loss_fn = lambda logits, target: dice(logits, target) + ce(logits, target)",
-"optimizer = torch.optim.Adam(model1.parameters(), lr=LR)",
-"scaler = torch.amp.GradScaler('cuda', enabled=(device.type=='cuda'))",
-"",
-"best_val = float('inf')",
-"ckpt_path = MODELS_DIR / 'model1_lulc_unet.pt'",
-"",
-"for epoch in range(1, NUM_EPOCHS + 1):",
-"    if epoch == FREEZE_ENCODER_EPOCHS + 1:",
-"        print('Unfreezing encoder.')",
-"        set_encoder_trainable(model1, True)",
-"    t0 = time.time()",
-"    train_loss = run_epoch(model1, train_loader, loss_fn, optimizer, scaler, device, train=True)",
-"    val_loss = run_epoch(model1, val_loader, loss_fn, optimizer, scaler, device, train=False)",
-"    print(f'Epoch {epoch:02d}/{NUM_EPOCHS}  train_loss={train_loss:.4f}  val_loss={val_loss:.4f}  ({time.time()-t0:.1f}s)')",
-"    if val_loss < best_val:",
-"        best_val = val_loss",
-"        torch.save({'model_state': model1.state_dict(), 'epoch': epoch, 'val_loss': val_loss}, ckpt_path)",
-"        print(f'  -> saved best checkpoint ({ckpt_path.name})')",
-"print(f'Done. Best val_loss={best_val:.4f}. Checkpoint: {ckpt_path}')",
-))
-
-# ---------------------------------------------------------------- 9b. Evaluation / accuracy report
-cells.append(md(
-"## 5b. Model 1 accuracy report",
-"Per-class precision/recall/IoU/F1 + overall pixel accuracy + mean IoU on the held-out val "
-"tiles, plus a confusion-matrix figure -- the numbers to actually defend to judges, instead "
-"of eyeballing the LULC map. Classes absent from the val set are reported as 'no ground "
-"truth' rather than a misleading 0.0 (small AOIs may not have every class in val).",
-))
+# ---------------------------------------------------------------- 8b. Evaluation helpers (moved
+# earlier than the "Evaluation" section below -- Model 1 training now needs metrics_from_confusion/
+# confusion_matrix_from_arrays DURING training (per-epoch, for IoU-based checkpoint selection, see
+# the Model 1 cell below), not just in the standalone report cell after it. Only the pure function
+# definitions live here; the "run the report against the trained model" code stays in its original
+# place after training, since THAT part genuinely depends on model1/ckpt_path/val_loader existing.
 cells.append(code(
 "def confusion_matrix_from_arrays(y_true, y_pred, num_classes):",
 "    y_true, y_pred = y_true.ravel(), y_pred.ravel()",
@@ -614,7 +539,131 @@ cells.append(code(
 "    fig.savefig(out_path, dpi=150)",
 "    plt.show()",
 "    print(f'Saved confusion matrix figure: {out_path}')",
+))
+
+# ---------------------------------------------------------------- 9. Model 1
+cells.append(md(
+"## 5. Model 1 — LULC U-Net",
+"ResNet18 encoder (ImageNet weights), 6-channel input, 7-class output. "
+"Frozen encoder for the first few epochs, then fine-tuned end-to-end.",
+))
+cells.append(code(
+"import time",
+"import segmentation_models_pytorch as smp",
 "",
+"def build_model1():",
+"    return smp.Unet(encoder_name='resnet18', encoder_weights='imagenet',",
+"                     in_channels=IN_CHANNELS, classes=NUM_CLASSES)",
+"",
+"def set_encoder_trainable(model, trainable: bool):",
+"    for p in model.encoder.parameters():",
+"        p.requires_grad = trainable",
+"",
+"def compute_class_weights(dataset, num_classes):",
+"    # Median-frequency balancing (Eigen & Fergus; SegNet). A real, hit result",
+"    # motivates this: a plain unweighted loss, picking the checkpoint by lowest",
+"    # aggregate val_loss, produced a checkpoint where Fallow (~0.25-0.6% of",
+"    # pixels) had precision/recall/IoU all exactly 0.000 -- a class that rare",
+"    # barely moves an aggregate loss either way, so there was no real gradient",
+"    # pressure to ever learn it. Plain inverse-frequency (1/freq) would swing",
+"    # too far the other way (~150x weight on the rarest class, destabilizing",
+"    # training); median-frequency balancing is the standard, better-behaved fix.",
+"    counts = np.zeros(num_classes, dtype='int64')",
+"    for i in range(len(dataset)):",
+"        _, mask = dataset[i]",
+"        counts += np.bincount(mask.numpy().ravel(), minlength=num_classes)",
+"    freq = counts / counts.sum()",
+"    present = freq > 0",
+"    median_freq = np.median(freq[present])",
+"    weights = np.where(present, median_freq / np.maximum(freq, 1e-12), 0.0)",
+"    print('Class weights (median-frequency balanced):')",
+"    for c in range(num_classes):",
+"        print(f'  {CLASS_NAMES.get(c, c):<38} count={counts[c]:>10}  freq={freq[c]*100:6.2f}%  weight={weights[c]:6.3f}')",
+"    return torch.tensor(weights, dtype=torch.float32)",
+"",
+"def run_epoch(model, loader, loss_fn, optimizer, scaler, device, train, num_classes=None):",
+"    # num_classes given (only meaningful when train=False) -> also accumulate a",
+"    # confusion matrix over the val set in the SAME pass already used for",
+"    # val_loss, reusing the logits already computed rather than a second forward",
+"    # pass -- this is what lets checkpoint selection use mean IoU below at no",
+"    # extra compute cost.",
+"    model.train(train)",
+"    total_loss, n_batches = 0.0, 0",
+"    cm = np.zeros((num_classes, num_classes), dtype='int64') if num_classes else None",
+"    for images, masks in loader:",
+"        images, masks = images.to(device), masks.to(device)",
+"        with torch.set_grad_enabled(train):",
+"            with torch.autocast(device_type=device.type, enabled=(device.type=='cuda')):",
+"                logits = model(images)",
+"                loss = loss_fn(logits, masks)",
+"            if train:",
+"                optimizer.zero_grad(set_to_none=True)",
+"                scaler.scale(loss).backward()",
+"                scaler.step(optimizer)",
+"                scaler.update()",
+"            elif cm is not None:",
+"                preds = torch.argmax(logits, dim=1).detach().cpu().numpy()",
+"                cm += confusion_matrix_from_arrays(masks.cpu().numpy(), preds, num_classes)",
+"        total_loss += loss.item()",
+"        n_batches += 1",
+"    return total_loss / max(n_batches, 1), cm",
+))
+cells.append(code(
+"device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')",
+"print('Device:', device)",
+"",
+"train_ds = WatershedTileDataset('train')",
+"val_ds = WatershedTileDataset('val')",
+"train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2)",
+"val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)",
+"print(f'Train tiles: {len(train_ds)}  Val tiles: {len(val_ds)}')",
+"",
+"model1 = build_model1().to(device)",
+"set_encoder_trainable(model1, False)",
+"",
+"class_weights = compute_class_weights(train_ds, NUM_CLASSES).to(device)",
+"dice = smp.losses.DiceLoss(mode='multiclass')",
+"ce = torch.nn.CrossEntropyLoss(weight=class_weights)",
+"loss_fn = lambda logits, target: dice(logits, target) + ce(logits, target)",
+"optimizer = torch.optim.Adam(model1.parameters(), lr=LR)",
+"scaler = torch.amp.GradScaler('cuda', enabled=(device.type=='cuda'))",
+"",
+"# Checkpoint selection is by mean IoU, not aggregate val_loss -- a rare class",
+"# barely moves an aggregate loss either way, so val_loss-based selection can",
+"# happily save a checkpoint where that class has completely collapsed (a real",
+"# result this project hit: Fallow IoU 0.000). Computed from the confusion",
+"# matrix run_epoch already accumulates during the val pass, no extra cost.",
+"best_mean_iou = -1.0",
+"ckpt_path = MODELS_DIR / 'model1_lulc_unet.pt'",
+"",
+"for epoch in range(1, NUM_EPOCHS + 1):",
+"    if epoch == FREEZE_ENCODER_EPOCHS + 1:",
+"        print('Unfreezing encoder.')",
+"        set_encoder_trainable(model1, True)",
+"    t0 = time.time()",
+"    train_loss, _ = run_epoch(model1, train_loader, loss_fn, optimizer, scaler, device, train=True)",
+"    val_loss, val_cm = run_epoch(model1, val_loader, loss_fn, optimizer, scaler, device, train=False, num_classes=NUM_CLASSES)",
+"    mean_iou = metrics_from_confusion(val_cm, CLASS_NAMES)['mean_iou']",
+"    print(f'Epoch {epoch:02d}/{NUM_EPOCHS}  train_loss={train_loss:.4f}  val_loss={val_loss:.4f}  val_mean_iou={mean_iou:.4f}  ({time.time()-t0:.1f}s)')",
+"    if mean_iou > best_mean_iou:",
+"        best_mean_iou = mean_iou",
+"        torch.save({'model_state': model1.state_dict(), 'epoch': epoch, 'val_loss': val_loss, 'val_mean_iou': mean_iou}, ckpt_path)",
+"        print(f'  -> saved best checkpoint ({ckpt_path.name}, mean_iou={mean_iou:.4f})')",
+"print(f'Done. Best val_mean_iou={best_mean_iou:.4f}. Checkpoint: {ckpt_path}')",
+))
+
+# ---------------------------------------------------------------- 9b. Evaluation / accuracy report
+cells.append(md(
+"## 5b. Model 1 accuracy report",
+"Per-class precision/recall/IoU/F1 + overall pixel accuracy + mean IoU on the held-out val "
+"tiles, plus a confusion-matrix figure -- the numbers to actually defend to judges, instead "
+"of eyeballing the LULC map. Classes absent from the val set are reported as 'no reference "
+"labels' rather than a misleading 0.0 (small AOIs may not have every class in val). "
+"confusion_matrix_from_arrays/metrics_from_confusion/etc. were defined earlier (Model 1 "
+"training needs them per-epoch, for IoU-based checkpoint selection) -- this cell just runs "
+"the final report against the saved best checkpoint.",
+))
+cells.append(code(
 "model1.load_state_dict(torch.load(ckpt_path, map_location=device)['model_state'])",
 "model1.eval()",
 "cm = np.zeros((NUM_CLASSES, NUM_CLASSES), dtype='int64')",
