@@ -642,8 +642,20 @@ bugs. Fixed in `src/*.py` and the notebook generator, then verified:
   helper cell moved earlier, since training now needs `metrics_from_confusion`
   per-epoch, not just in the final report — verified with a precise
   definition-before-use check across cells, not just per-cell syntax).
-  **Next step, same as before: needs a fresh Colab retrain to actually see
-  the fixed numbers.**
+  **Update — the fresh Colab retrain against the fix landed, and the
+  collapse is gone**: mean IoU **49.1%**, pixel accuracy **78.2%**. Per-class
+  IoU: water 82.5%, dense vegetation 66.8%, agriculture 71.2%, sparse
+  vegetation 49.1%, barren 35.9%, built-up 30.4%, **fallow 7.5%** (precision
+  0.144, recall 0.135) — up from exactly 0.000/0.000/0.000. The fix did what
+  it was meant to: it stopped the total collapse, it didn't make fallow an
+  easy class. Fallow remains by far the weakest class, consistent with this
+  project's long-documented history of fallow/barren being genuinely
+  hard, spectrally-confusable classes (section 6a) — not a sign the fix is
+  incomplete. Mean IoU only ticking up one point from the broken run's 48.1%
+  undersells the change: built-up in particular is a real gain (IoU 30.4%,
+  was near-zero), and pixel accuracy/per-class precision-recall are visibly
+  healthier across the board than a run with a fully dead class. This is now
+  confirmed at full-training scale, not just the 2-epoch local smoke test.
   **Update — the same fix applied to Model 2** (`model2_change.py`), for
   consistency: Model 2's loss and checkpoint selection had the identical
   structural bug (unweighted `DiceLoss + CrossEntropyLoss`, best checkpoint
