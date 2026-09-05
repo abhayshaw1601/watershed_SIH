@@ -4,7 +4,7 @@ Watershed Signal — PS-26015 demo app.
 Wraps the trained pipeline (Model 1 LULC U-Net, Tier-1 rule-based change
 detection, rule-based recommendation engine) in an interactive UI. A single
 location picker (3 trained-site presets, or search/enter any coordinates)
-drives every tab — Land Cover, Change, Health & Alerts, and Map all render
+drives every tab — Land Cover, Change, Condition & Alerts, and Map all render
 whatever AOI is currently active in st.session_state["active_aoi"].
 
 Only the trained Model 1 checkpoint needs to be brought in manually (train it
@@ -38,7 +38,8 @@ import matplotlib.pyplot as plt
 from rasterio.warp import transform_bounds
 import design
 from aoi_picker import render_picker
-from geo_photo import render_field_verification_tab
+from geo_photo import render_field_verification_tab, read_validation_log
+import intervention_registry as reg
 
 st.set_page_config(
     page_title="Watershed Signal · PS-26015", layout="wide",
@@ -132,8 +133,8 @@ if aoi is None:
 
 st.write("")
 
-tab_lulc, tab_change, tab_health, tab_map, tab_field, tab_about = st.tabs(
-    ["Land Cover", "Change", "Health & Alerts", "Map", "Field Verification", "About"]
+tab_lulc, tab_change, tab_health, tab_map, tab_field, tab_interventions, tab_about = st.tabs(
+    ["Land Cover", "Change", "Condition & Alerts", "Map", "Field Verification", "Interventions", "About"]
 )
 
 with tab_lulc:
@@ -169,7 +170,7 @@ with tab_health:
         trend_color = design.SAGE if trend > 0.01 else (design.DANGER if trend < -0.01 else design.TEXT_MUTED)
         st.html(design.render_readout_stat("NDVI trend, T1 &rarr; T2", f"{trend:+.4f} &middot; {trend_word}", trend_color))
         st.html("<div style='height:10px;'></div>")
-        st.html(design.render_readout_stat("Watershed health", f"{aoi['health']:.1f} / 100"))
+        st.html(design.render_readout_stat("Watershed condition score", f"{aoi['health']:.1f} / 100"))
 
     st.html('<div class="wsig-eyebrow" style="margin-top:20px;">Alerts &amp; recommendations</div>')
     for alert in aoi["alerts"]:
@@ -238,6 +239,83 @@ with tab_map:
 with tab_field:
     render_field_verification_tab(model1, device)
 
+with tab_interventions:
+    st.html(
+        f"""<div class="wsig-panel">
+<div class="wsig-eyebrow">Intervention registry</div>
+<p style="color:{design.INK_MUTED}; margin:4px 0 0 0; font-size:14px;">
+Track individual watershed structures (check dams, farm ponds, percolation tanks) as real
+records, each connected to the currently-active AOI's satellite evidence at its exact location
+&mdash; and to any geo-tagged Field Verification photo taken nearby. This is the actual
+"integrated spatial analysis," not just documentation, the PS asks for.
+</p>
+</div>"""
+    )
+    st.write("")
+
+    with st.expander("Add an intervention", expanded=not reg.read_interventions()):
+        c1, c2 = st.columns(2)
+        iv_name = c1.text_input("Name", placeholder="e.g. Check Dam #3")
+        iv_type = c2.selectbox("Type", reg.INTERVENTION_TYPES)
+        c3, c4 = st.columns(2)
+        iv_lat = c3.number_input("Latitude", value=aoi["lat"], format="%.5f", key="iv_lat")
+        iv_lon = c4.number_input("Longitude", value=aoi["lon"], format="%.5f", key="iv_lon")
+        iv_notes = st.text_input("Notes (optional)")
+        if st.button("Add intervention", type="primary") and iv_name:
+            reg.add_intervention(iv_name, iv_type, iv_lat, iv_lon, iv_notes)
+            st.success(f'Added "{iv_name}".')
+            st.rerun()
+
+    interventions = reg.read_interventions()
+    if not interventions:
+        st.caption("No interventions recorded yet.")
+    else:
+        st.html('<div class="wsig-eyebrow" style="margin-top:16px;">Recorded interventions</div>')
+        st.dataframe(interventions, use_container_width=True, hide_index=True)
+
+        labels = [f'{r["name"]} ({r["type"]})' for r in interventions]
+        picked_idx = st.selectbox(
+            "Select an intervention to see its evidence", range(len(interventions)),
+            format_func=lambda i: labels[i],
+        )
+        iv = interventions[picked_idx]
+        iv_lat, iv_lon = float(iv["lat"]), float(iv["lon"])
+
+        evidence = reg.sample_evidence_at_point(iv_lat, iv_lon, aoi)
+        if not evidence["in_aoi"]:
+            st.warning(
+                f'"{iv["name"]}" is outside the currently active AOI ({aoi["display_name"]}) -- '
+                "pick the location it actually falls within to see satellite evidence for it."
+            )
+        else:
+            st.caption(
+                f"Condition over the available imagery window (T1 {evidence['t1_date']} → "
+                f"T2 {evidence['t2_date']}) at this point -- not a claim of before/after the "
+                "intervention itself; Kadwanchi's real structures predate this imagery by "
+                "15+ years, so genuine pre/post-construction comparison isn't possible with "
+                "Sentinel-2 data."
+            )
+            ec1, ec2 = st.columns(2)
+            with ec1:
+                st.html(design.render_readout_stat("Land cover, T1", evidence["class_t1_name"]))
+                st.html("<div style='height:8px;'></div>")
+                st.html(design.render_readout_stat("NDVI, T1", f"{evidence['ndvi_t1']:+.3f}"))
+            with ec2:
+                st.html(design.render_readout_stat("Land cover, T2", evidence["class_t2_name"]))
+                st.html("<div style='height:8px;'></div>")
+                st.html(design.render_readout_stat("NDVI, T2", f"{evidence['ndvi_t2']:+.3f}"))
+
+            photo_rows = read_validation_log()
+            linked = reg.link_nearby_photos(iv_lat, iv_lon, photo_rows)
+            st.html('<div class="wsig-eyebrow" style="margin-top:16px;">Linked field-verification photos</div>')
+            if linked:
+                st.dataframe(linked, use_container_width=True, hide_index=True)
+            else:
+                st.caption(
+                    f"None within {reg.PHOTO_LINK_THRESHOLD_M:.0f}m yet -- log a geo-tagged photo "
+                    "near this point in the Field Verification tab to connect one."
+                )
+
 with tab_about:
     st.html(
         f"""<div class="wsig-panel">
@@ -255,6 +333,13 @@ satellite stack (R, G, B, NIR, NDVI, NDWI) and classifies every 10m patch into o
 cover the classes any single site lacked — see the presets above.</li>
 <li><b style="color:{design.TEXT};">Change detection</b> — a rule-based diff of two Model 1
 passes, no separate training needed.</li>
+<li><b style="color:{design.TEXT};">Watershed boundary &amp; drainage</b> — a real catchment
+and stream network, delineated from Copernicus DEM (30m) elevation data, not an arbitrary
+square box. Explicitly labeled as an approximation (see the Map tab's caveat) — no site here
+has a verified official watershed boundary to check it against.</li>
+<li><b style="color:{design.TEXT};">Intervention registry</b> — connects individual watershed
+structures to the satellite evidence at their exact location and any nearby geo-tagged field
+photo, instead of leaving each as an isolated point on a map.</li>
 <li><b style="color:{design.TEXT};">Recommendation engine</b> — plain if-then rules, no ML —
 every alert traces back to a specific, auditable reason.</li>
 <li><b style="color:{design.TEXT};">Location picker</b> — presets are the model's actual
