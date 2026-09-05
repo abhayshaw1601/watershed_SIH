@@ -586,6 +586,37 @@ bugs. Fixed in `src/*.py` and the notebook generator, then verified:
    refreshed to the current 9km bbox (912x847) as part of verifying this
    fix, which is also what surfaced the coverage gap in the first place.
    Fixed in both `data_download.py` and the notebook generator.
+9. **Real production incident: the deployed app was fully down.** After
+   merging the watershed-delineation work into `deploy`, Streamlit Community
+   Cloud crashed the whole app at import time:
+   `ModuleNotFoundError: No module named 'pysheds'` deep in
+   `aoi_picker.py`'s top-level `from watershed_delineation import
+   get_watershed_context`. Root cause, checked not guessed: Streamlit
+   Community Cloud runs Python 3.14, and `numba` (a required transitive
+   dependency of pysheds, via `pysheds -> numba/llvmlite`) only added
+   Python 3.14 support in its 0.63.0 release (2025-12-08) -- pysheds itself
+   doesn't pin a numba version, so an unpinned install had no guarantee of
+   landing on a 3.14-compatible pair, and evidently didn't. This had only
+   ever been verified against a local Python 3.12 venv (item 1's "test
+   locally" discipline doesn't catch a platform-specific Python version
+   mismatch that isn't reproducible locally). Two fixes, both verified
+   before considering this closed:
+   - Wrapped the `watershed_delineation` import in `aoi_picker.py` in
+     `try/except ImportError`, falling back to `get_watershed_context =
+     None` and skipping the DEM/catchment step with a visible caveat
+     instead of crashing -- the same tolerance `run_pipeline` already had
+     around *calling* `get_watershed_context`, just missing from the
+     import itself. Verified by actually reproducing the failure locally
+     (`sys.modules['pysheds'] = None`) and booting the full Streamlit app
+     headless -- HTTP 200, no exceptions, watershed feature cleanly absent.
+   - Floored `numba>=0.63.0` / `llvmlite>=0.46.0` in both requirements
+     files (previously unpinned) so a rebuild is more likely to resolve a
+     Python-3.14-compatible pair instead of leaving it to chance.
+   Not yet independently confirmed against the live Streamlit Cloud
+   redeploy (can't be, from here) -- the import-guard fix is what actually
+   matters for uptime regardless of whether the version floor resolves
+   pysheds successfully on 3.14, since the app now degrades instead of
+   crashing either way.
 
 ## 9. Known limitations (current state, be honest about these)
 
