@@ -644,6 +644,31 @@ bugs. Fixed in `src/*.py` and the notebook generator, then verified:
   definition-before-use check across cells, not just per-cell syntax).
   **Next step, same as before: needs a fresh Colab retrain to actually see
   the fixed numbers.**
+  **Update — the same fix applied to Model 2** (`model2_change.py`), for
+  consistency: Model 2's loss and checkpoint selection had the identical
+  structural bug (unweighted `DiceLoss + CrossEntropyLoss`, best checkpoint
+  picked by lowest aggregate `val_loss`) — a real risk here too, since
+  "No change" dominates a weak change-label map even more heavily than any
+  single LULC class dominates Model 1's labels. Added
+  `compute_change_class_weights` (same median-frequency balancing) and
+  switched checkpoint selection to mean IoU over the 5 change classes, with
+  the confusion matrix accumulated inline during the existing val pass — no
+  extra forward pass. Mirrored into the notebook generator's Model 2 cells
+  and re-validated (syntax + definition-before-use check across the
+  reordered/new cells). **Smoke-tested locally (2 epochs, real GPU) — but
+  with an important caveat, unlike Model 1's smoke test**: the local
+  Kadwanchi T1 and T2 masks used for this test were both rasterized from
+  the *same* single WorldCover file earlier this session (a stand-in for
+  missing local mask files, not a live two-date fetch), so `mask_t1 ==
+  mask_t2` exactly and the weak change-label pipeline produces 100% "No
+  change" by construction — the printed weights table showed `No change:
+  weight=1.000` and all four real change classes at `count=0, weight=0.000`.
+  The smoke test confirms the code runs correctly end-to-end (no crash,
+  correct shapes, weights print, checkpoint saves and improves — mean IoU
+  0.508 → 0.568 over 2 epochs) but, because the local test data has zero
+  real change signal, it does **not** demonstrate the fix's real-world
+  impact the way Model 1's Fallow-recall result did. That will only be
+  visible from a real Colab retrain against genuine two-date imagery.
   Previously dense vegetation and barren land were near-total failures
   (IoU 0.004 / 0.000); pooling in Tamhini Ghat and Donimalai fixed both
   without regressing the other classes. The earlier "small, imbalanced
