@@ -31,7 +31,7 @@ export default function Home() {
       {/* ---------------------------------------------------------------- Hero */}
       <section className="relative overflow-hidden">
         <div className="hairline-grid" />
-        <div className="absolute inset-y-0 right-0 hidden w-1/2 lg:block">
+        <div className="pointer-events-none absolute inset-0 opacity-40 transition-opacity duration-700 sm:opacity-50 lg:pointer-events-auto lg:inset-y-0 lg:left-auto lg:right-0 lg:w-1/2 lg:opacity-100">
           <HeroCanvas />
         </div>
         <div className="relative mx-auto max-w-7xl px-6 pb-20 pt-20 sm:px-10 sm:pt-28">
