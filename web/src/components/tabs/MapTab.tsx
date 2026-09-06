@@ -5,6 +5,7 @@ import { MapContainer, TileLayer, ImageOverlay } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import type { SiteMeta } from "@/lib/watershed-data";
 import { rgbToCss } from "@/lib/watershed-data";
+import { Warning } from "@phosphor-icons/react";
 
 export default function MapTab({ site, meta }: { site: string; meta: SiteMeta }) {
   const [opacity, setOpacity] = useState(0.65);
@@ -30,7 +31,7 @@ export default function MapTab({ site, meta }: { site: string; meta: SiteMeta })
     <div className="space-y-6">
       {/* Scientific Honesty Caveat */}
       <div className="rounded-xl border border-amber/30 bg-amber/5 px-4 py-3 text-xs text-amber leading-relaxed flex items-start gap-2.5">
-        <span className="text-base shrink-0">⚠️</span>
+        <Warning size={16} className="text-amber shrink-0 mt-0.5" weight="bold" />
         <div>
           <span className="font-semibold">Hydrological Model Note:</span> Watershed boundary &amp; drainage
           channels are algorithmically delineated from Copernicus 30m DEM elevation data (pour point snapped

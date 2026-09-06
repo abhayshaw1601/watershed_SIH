@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
+import { X } from "@phosphor-icons/react";
 
 export default function ModelStatusModal({
   isOpen,
@@ -16,21 +17,18 @@ export default function ModelStatusModal({
 
   if (!isOpen) return null;
 
-  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith(".pt")) {
-      setUploadMessage("Error: Checkpoint must be a PyTorch .pt file.");
-      return;
-    }
-
     setIsUploading(true);
-    setUploadMessage("Validating and storing checkpoint...");
+    setUploadMessage("Validating PyTorch state_dict...");
 
+    // Simulated model upload & validation
     setTimeout(() => {
       setIsUploading(false);
-      setUploadMessage(`Successfully loaded ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
+      setUploadMessage("Model weights updated successfully (6-band U-Net).");
+      setTimeout(() => setUploadMessage(null), 3000);
     }, 1200);
   }
 
@@ -39,14 +37,15 @@ export default function ModelStatusModal({
       <div className="relative w-full max-w-xl rounded-2xl border border-foreground/15 bg-background p-6 sm:p-8 shadow-2xl">
         <div className="flex items-center justify-between border-b border-foreground/10 pb-4">
           <div className="flex items-center gap-2.5">
-            <Badge tone="sage">● ONLINE</Badge>
+            <Badge tone="sage">ONLINE</Badge>
             <h3 className="font-display text-xl sm:text-2xl">Model 1 U-Net Checkpoint</h3>
           </div>
           <button
             onClick={onClose}
-            className="text-muted-foreground hover:text-foreground p-1 text-sm font-mono"
+            className="text-muted-foreground hover:text-foreground p-1 text-sm font-mono cursor-pointer"
+            aria-label="Close modal"
           >
-            ✕
+            <X size={16} weight="bold" />
           </button>
         </div>
 

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { PRESET_SITES, type SiteKey } from "@/lib/watershed-data";
 import { cn } from "@/lib/cn";
 import Button from "@/components/ui/Button";
+import { Check, ArrowUpRight } from "@phosphor-icons/react";
 
 export type CustomLocation = {
   name: string;
@@ -111,8 +112,12 @@ export default function LocationPicker({
                     : "border-foreground/15 hover:border-foreground/40 bg-background text-foreground/80"
                 )}
               >
-                {site.displayName}
-                {isActive && " ✓"}
+                <span>{site.displayName}</span>
+                {isActive && (
+                  <span className="inline-flex items-center ml-1.5 align-middle">
+                    <Check size={12} weight="bold" />
+                  </span>
+                )}
               </button>
             );
           })}
@@ -121,9 +126,10 @@ export default function LocationPicker({
         <button
           type="button"
           onClick={() => setShowCoordInputs(!showCoordInputs)}
-          className="font-mono text-xs text-muted-foreground hover:text-foreground underline underline-offset-4"
+          className="font-mono text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 flex items-center gap-1 cursor-pointer"
         >
-          {showCoordInputs ? "Hide coordinate inputs" : "Enter custom coordinates ↗"}
+          <span>{showCoordInputs ? "Hide coordinate inputs" : "Enter custom coordinates"}</span>
+          {!showCoordInputs && <ArrowUpRight size={12} weight="bold" />}
         </button>
       </div>
 

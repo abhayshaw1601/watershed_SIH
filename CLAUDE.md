@@ -71,3 +71,34 @@ together when reporting status.
    input from `needed_inputs.md` gets resolved (e.g. AOI decided), or the
    project's status changes materially, update the relevant doc rather than
    letting it go stale.
+
+8. **Zero emojis in the web frontend — ever.** The entire `web/src/` tree must
+   have zero Unicode emoji characters. All icons use `@phosphor-icons/react`
+   SVG only. This is enforced by a Node.js regex scan before every build.
+   Never add emoji to TSX/TS files even as a quick label — use an icon or a
+   typographic tag instead.
+
+9. **Field ground truth requires physical photo evidence.** The Field Investigation
+   tab (`FieldTab.tsx`) tracks `hasPhoto: boolean` per station. It is forbidden
+   to display "AI Matches Ground (Confirmed)" or allow the "Confirmed Match"
+   verdict button to be clicked without an attached field photo. When a photo
+   is absent, the UI must display two explicit tags:
+   - **Why Verification is Needed** — citing the specific optical satellite
+     limitation (e.g. 10m pixel averaging, shadow masking, spectral confusion).
+   - **What On-Ground Inspection Will Uncover** — citing the concrete physical
+     measurement the surveyor should record (staff gauge, caliper, penetrometer).
+   Do not soften this to a mere "unverified" badge — the distinction matters
+   for scientific and government credibility.
+
+10. **AOI-coordinate safety for all tab structures.** Whenever a tab generates
+    coordinates for structures (check dams, ground stations, interventions)
+    relative to the active AOI bounding box, use the `clampToAoi()` function
+    (or equivalent clamping logic) to guarantee every coordinate falls strictly
+    inside `[south + 15% * latSpan, north - 15% * latSpan]` and
+    `[west + 15% * lonSpan, east - 15% * lonSpan]`. Never generate unclamped
+    offsets from the AOI center — even small multiplier drift can push points
+    outside the bounding box for narrow watersheds.
+
+11. **Do not edit `todo.md`.** The `todo.md` file is managed manually by the
+    user and documents their own task planning. Do not modify it, even to mark
+    items as done — unless the user explicitly asks.

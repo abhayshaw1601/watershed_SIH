@@ -5,11 +5,13 @@ import dynamic from "next/dynamic";
 import { cn } from "@/lib/cn";
 import { PRESET_SITES, type SiteKey, type SiteMeta } from "@/lib/watershed-data";
 import Badge from "@/components/ui/Badge";
+import { Radio, Check, X } from "@phosphor-icons/react";
 import LULCTab from "@/components/tabs/LULCTab";
 import ChangeTab from "@/components/tabs/ChangeTab";
 import HealthTab from "@/components/tabs/HealthTab";
 import FieldTab from "@/components/tabs/FieldTab";
 import InterventionsTab from "@/components/tabs/InterventionsTab";
+import SimulatorTab from "@/components/tabs/SimulatorTab";
 import LocationPicker, { type CustomLocation } from "@/components/LocationPicker";
 
 const MapTab = dynamic(() => import("@/components/tabs/MapTab"), {
@@ -22,8 +24,9 @@ const TABS = [
   { key: "change", label: "Change", needsChangePair: true },
   { key: "health", label: "Health & Alerts", needsChangePair: true },
   { key: "map", label: "Map", needsChangePair: false },
-  { key: "field", label: "Field Verify", needsChangePair: false },
-  { key: "interventions", label: "Interventions", needsChangePair: false },
+  { key: "field", label: "Field Investigation", needsChangePair: false },
+  { key: "investigation", label: "Investigation", needsChangePair: false },
+  { key: "simulator", label: "What-If Simulator", needsChangePair: false },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -255,8 +258,9 @@ export default function WatershedApp() {
             </div>
           </div>
 
-          <p className="mt-3 font-mono text-xs text-foreground/80 bg-background/60 p-2.5 rounded-xl border border-foreground/5">
-            🛰️ {currentStage.detail}
+          <p className="mt-3 font-mono text-xs text-foreground/80 bg-background/60 p-2.5 rounded-xl border border-foreground/5 flex items-center gap-2">
+            <Radio size={14} className="text-amber animate-pulse shrink-0" weight="bold" />
+            <span>{currentStage.detail}</span>
           </p>
 
           {/* Animated Progress Bar with glowing gradient */}
@@ -272,19 +276,19 @@ export default function WatershedApp() {
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 font-mono text-[11px]">
             <div className={cn("p-2 rounded-lg border transition-colors", currentStage.step === 1 ? "border-amber bg-amber/10 text-amber font-medium" : currentStage.step > 1 ? "border-sage/40 bg-sage/5 text-sage" : "border-foreground/10 text-muted-foreground/60")}>
               <div className="flex items-center gap-1.5">
-                <span>{currentStage.step > 1 ? "✓" : "1."}</span>
+                <span>{currentStage.step > 1 ? <Check size={12} weight="bold" /> : "1."}</span>
                 <span>STAC Search</span>
               </div>
             </div>
             <div className={cn("p-2 rounded-lg border transition-colors", currentStage.step === 2 ? "border-amber bg-amber/10 text-amber font-medium" : currentStage.step > 2 ? "border-sage/40 bg-sage/5 text-sage" : "border-foreground/10 text-muted-foreground/60")}>
               <div className="flex items-center gap-1.5">
-                <span>{currentStage.step > 2 ? "✓" : "2."}</span>
+                <span>{currentStage.step > 2 ? <Check size={12} weight="bold" /> : "2."}</span>
                 <span>10m Bands Clip</span>
               </div>
             </div>
             <div className={cn("p-2 rounded-lg border transition-colors", currentStage.step === 3 ? "border-amber bg-amber/10 text-amber font-medium" : currentStage.step > 3 ? "border-sage/40 bg-sage/5 text-sage" : "border-foreground/10 text-muted-foreground/60")}>
               <div className="flex items-center gap-1.5">
-                <span>{currentStage.step > 3 ? "✓" : "3."}</span>
+                <span>{currentStage.step > 3 ? <Check size={12} weight="bold" /> : "3."}</span>
                 <span>PyTorch U-Net</span>
               </div>
             </div>
@@ -304,7 +308,7 @@ export default function WatershedApp() {
           <div className="flex items-center gap-3.5">
             <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sage text-white text-lg font-bold shadow-sm">
               <span className="absolute inline-flex h-full w-full animate-ping-slow rounded-full bg-sage opacity-40" />
-              ✓
+              <Check size={20} weight="bold" />
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -322,9 +326,10 @@ export default function WatershedApp() {
           </div>
           <button
             onClick={() => setCompletedInfo(null)}
-            className="rounded-lg border border-foreground/15 bg-background px-3 py-1.5 font-mono text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+            className="flex items-center gap-1.5 rounded-lg border border-foreground/15 bg-background px-3 py-1.5 font-mono text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
           >
-            Dismiss ✕
+            <span>Dismiss</span>
+            <X size={12} weight="bold" />
           </button>
         </div>
       )}
@@ -406,10 +411,11 @@ export default function WatershedApp() {
           <>
             {tab === "land-cover" && <LULCTab site={siteKey} meta={meta} />}
             {tab === "change" && <ChangeTab site={siteKey} meta={meta} />}
-            {tab === "health" && <HealthTab meta={meta} />}
+            {tab === "health" && <HealthTab meta={meta} onNavigateToSimulator={() => setTab("simulator")} />}
             {tab === "map" && <MapTab site={siteKey} meta={meta} />}
             {tab === "field" && <FieldTab site={siteKey} meta={meta} />}
-            {tab === "interventions" && <InterventionsTab site={siteKey} meta={meta} />}
+            {tab === "investigation" && <InterventionsTab site={siteKey} meta={meta} />}
+            {tab === "simulator" && <SimulatorTab meta={meta} />}
           </>
         )}
       </div>
