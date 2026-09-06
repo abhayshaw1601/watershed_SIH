@@ -53,6 +53,11 @@ boto3==1.43.86
 
 segmentation_models_pytorch==0.5.0
 
+# Real watershed catchment/drainage delineation from DEM data (Copernicus GLO-30)
+numba>=0.63.0
+llvmlite>=0.46.0
+pysheds==0.5
+
 streamlit==1.63.0
 streamlit-folium==0.27.4
 folium==0.20.0

@@ -3,6 +3,11 @@
 # torch/torchvision are deliberately NOT listed below, and must be installed
 # as an EXPLICITLY VERSION-PINNED PAIR, not just "latest from the CUDA index":
 #
+#   # Using uv:
+#   uv pip install --reinstall torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+#   uv pip install -r requirements.txt
+#
+#   # Using standard pip:
 #   .venv/Scripts/python.exe -m pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
 #   .venv/Scripts/python.exe -m pip install -r requirements.txt
 #

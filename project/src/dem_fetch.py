@@ -67,14 +67,16 @@ def _fetch_and_cache_tile(tile_id: str, cache_dir: Path) -> Path:
     same tile (all 4 current AOIs do, for example) reuses this fetch."""
     cache_path = cache_dir / f"{tile_id}.tif"
     if cache_path.exists():
+        print(f"--> [DEM] Tile {tile_id} found in local cache.", flush=True)
         return cache_path
     cache_dir.mkdir(parents=True, exist_ok=True)
+    print(f"--> [DEM] Downloading Copernicus 30m DEM tile {tile_id} from AWS Open Data (~35MB, one-time fetch)...", flush=True)
     vsi_url = f"/vsicurl/{dem_tile_url(tile_id)}"
     with rasterio.open(vsi_url) as src:
         data = src.read()
         profile = src.profile.copy()
     atomic_raster_write(cache_path, data, profile)
-    print(f"Cached DEM tile {tile_id} -> {cache_path}  shape={data.shape}")
+    print(f"--> [DEM] Cached DEM tile {tile_id} -> {cache_path}  shape={data.shape}", flush=True)
     return cache_path
 
 

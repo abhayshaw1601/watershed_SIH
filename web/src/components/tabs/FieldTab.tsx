@@ -83,7 +83,13 @@ async function sampleClassAt(
   return bestCls !== null ? siteMeta.class_names[bestCls] : null;
 }
 
-export default function FieldTab() {
+export default function FieldTab({
+  site,
+  meta: currentMeta,
+}: {
+  site?: string;
+  meta?: SiteMeta | null;
+}) {
   const [dragOver, setDragOver] = useState(false);
   const [status, setStatus] = useState<"idle" | "reading" | "no-gps" | "outside-coverage" | "done" | "error">("idle");
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
@@ -98,37 +104,62 @@ export default function FieldTab() {
     setLog(loadLog());
   }, []);
 
-  const handleFile = useCallback(async (file: File) => {
-    setStatus("reading");
-    setCoords(null);
-    setMatchedSite(null);
-    setPredictedClass(null);
+  const inspectCoordinate = useCallback(
+    async (targetLat: number, targetLon: number) => {
+      setStatus("reading");
+      setCoords({ lat: targetLat, lon: targetLon });
+      setMatchedSite(null);
+      setPredictedClass(null);
 
-    const exifr = (await import("exifr")).default;
-    const gps = await exifr.gps(file).catch(() => null);
-    if (!gps || typeof gps.latitude !== "number") {
-      setStatus("no-gps");
-      return;
-    }
-    setCoords({ lat: gps.latitude, lon: gps.longitude });
-
-    for (const site of PRESET_SITES) {
-      let meta = metaCache.current[site.key];
-      if (!meta) {
-        const res = await fetch(`/demo-data/${site.key}/meta.json`);
-        meta = (await res.json()) as SiteMeta;
-        metaCache.current[site.key] = meta;
+      // Check current active site first
+      if (site && currentMeta) {
+        const cls = await sampleClassAt(site, currentMeta, targetLat, targetLon).catch(() => null);
+        if (cls !== null) {
+          setMatchedSite(currentMeta.display_name || site);
+          setPredictedClass(cls);
+          setStatus("done");
+          return;
+        }
       }
-      const cls = await sampleClassAt(site.key, meta, gps.latitude, gps.longitude).catch(() => null);
-      if (cls !== null) {
-        setMatchedSite(site.key);
-        setPredictedClass(cls);
-        setStatus("done");
+
+      // Check preset sites
+      for (const pSite of PRESET_SITES) {
+        let meta = metaCache.current[pSite.key];
+        if (!meta) {
+          const res = await fetch(`/demo-data/${pSite.key}/meta.json`);
+          meta = (await res.json()) as SiteMeta;
+          metaCache.current[pSite.key] = meta;
+        }
+        const cls = await sampleClassAt(pSite.key, meta, targetLat, targetLon).catch(() => null);
+        if (cls !== null) {
+          setMatchedSite(pSite.displayName);
+          setPredictedClass(cls);
+          setStatus("done");
+          return;
+        }
+      }
+      setStatus("outside-coverage");
+    },
+    [site, currentMeta]
+  );
+
+  const handleFile = useCallback(
+    async (file: File) => {
+      setStatus("reading");
+      setCoords(null);
+      setMatchedSite(null);
+      setPredictedClass(null);
+
+      const exifr = (await import("exifr")).default;
+      const gps = await exifr.gps(file).catch(() => null);
+      if (!gps || typeof gps.latitude !== "number") {
+        setStatus("no-gps");
         return;
       }
-    }
-    setStatus("outside-coverage");
-  }, []);
+      inspectCoordinate(gps.latitude, gps.longitude);
+    },
+    [inspectCoordinate]
+  );
 
   function recordVerdict(verdict: Verdict) {
     if (!coords) return;
@@ -166,6 +197,54 @@ export default function FieldTab() {
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_20rem]">
       <div>
+        {currentMeta && (
+          <div className="mb-4 rounded-xl border border-foreground/10 bg-foreground/[0.02] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-mono text-xs text-muted-foreground uppercase tracking-wider">
+                📍 Inspect Active AOI Ground Points ({currentMeta.display_name || site})
+              </span>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                Click to sample ground class from satellite model
+              </span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const lat = (currentMeta.bbox_wgs84.south + currentMeta.bbox_wgs84.north) / 2;
+                  const lon = (currentMeta.bbox_wgs84.west + currentMeta.bbox_wgs84.east) / 2;
+                  inspectCoordinate(Number(lat.toFixed(5)), Number(lon.toFixed(5)));
+                }}
+                className="rounded-lg border border-foreground/15 bg-background px-3 py-1.5 text-xs font-medium hover:border-foreground/40 transition-colors"
+              >
+                Center Coordinate ({((currentMeta.bbox_wgs84.south + currentMeta.bbox_wgs84.north) / 2).toFixed(3)}°N)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const lat = currentMeta.bbox_wgs84.south + (currentMeta.bbox_wgs84.north - currentMeta.bbox_wgs84.south) * 0.75;
+                  const lon = currentMeta.bbox_wgs84.west + (currentMeta.bbox_wgs84.east - currentMeta.bbox_wgs84.west) * 0.75;
+                  inspectCoordinate(Number(lat.toFixed(5)), Number(lon.toFixed(5)));
+                }}
+                className="rounded-lg border border-foreground/15 bg-background px-3 py-1.5 text-xs font-medium hover:border-foreground/40 transition-colors"
+              >
+                NE Sector (Vegetation/Hill)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const lat = currentMeta.bbox_wgs84.south + (currentMeta.bbox_wgs84.north - currentMeta.bbox_wgs84.south) * 0.25;
+                  const lon = currentMeta.bbox_wgs84.west + (currentMeta.bbox_wgs84.east - currentMeta.bbox_wgs84.west) * 0.25;
+                  inspectCoordinate(Number(lat.toFixed(5)), Number(lon.toFixed(5)));
+                }}
+                className="rounded-lg border border-foreground/15 bg-background px-3 py-1.5 text-xs font-medium hover:border-foreground/40 transition-colors"
+              >
+                SW Sector (Valley/Stream)
+              </button>
+            </div>
+          </div>
+        )}
+
         <div
           onDragOver={(e) => {
             e.preventDefault();

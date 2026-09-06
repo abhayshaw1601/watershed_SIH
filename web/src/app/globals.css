@@ -160,3 +160,34 @@ body {
 .animate-pulse-dot {
   animation: pulse-dot 1.8s ease-in-out infinite;
 }
+
+/* ---- Radar sweep animation for satellite sensor scanning ---- */
+@keyframes radar-sweep {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+.animate-radar {
+  animation: radar-sweep 3.5s linear infinite;
+}
+
+@keyframes ping-slow {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  70% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+.animate-ping-slow {
+  animation: ping-slow 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
