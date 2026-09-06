@@ -83,8 +83,13 @@ def render_change_map(change_map, ax, title):
         0: (230, 230, 230), 1: (66, 135, 245), 2: (200, 30, 30),
         3: (139, 69, 19), 4: (34, 139, 34),
     }
-    cmap = ListedColormap([np.array(change_colors[i]) / 255 for i in range(5)])
-    ax.imshow(change_map, cmap=cmap, vmin=0, vmax=4, interpolation="nearest")
+    # NODATA_CLASS (255) must never fall through to the top edge color
+    # (imshow clips out-of-range values, which would paint "no coverage" as
+    # sage-green "vegetation gain"). Remap to a dedicated gray slot instead.
+    drawn = np.where(change_map == NODATA_CLASS, 5, change_map).astype("uint8")
+    cmap = ListedColormap([np.array(change_colors[i]) / 255 for i in range(5)]
+                          + [np.array(CLASS_COLORS[NODATA_CLASS]) / 255])
+    ax.imshow(drawn, cmap=cmap, vmin=0, vmax=5, interpolation="nearest")
     ax.set_title(title)
     ax.axis("off")
 
