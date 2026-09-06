@@ -42,6 +42,8 @@ web/node_modules/
 web/.next/
 web/out/
 web/next-env.d.ts
+web/public/demo-data/custom_live/
+
 
 # Editors / IDEs
 .vscode/

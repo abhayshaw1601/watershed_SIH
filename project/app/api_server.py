@@ -37,6 +37,7 @@ from config import (
 )
 import intervention_registry as reg
 from geo_photo import read_validation_log
+from cache_manager import cache
 
 PORT = 8000
 MODEL1_PATH = MODELS_DIR / "model1_lulc_unet.pt"
@@ -253,6 +254,15 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 out_dir = WEB_DEMO_DIR / "custom_live"
                 out_dir.mkdir(parents=True, exist_ok=True)
 
+                # Tier-2 Cache Check (Memory / Redis)
+                cache_key = f"aoi_meta:{lat:.4f}_{lon:.4f}"
+                cached_meta = cache.get_json(cache_key)
+                if cached_meta is not None and (out_dir / "meta.json").exists():
+                    print(f"--> [Cache HIT] Instant response for '{name}' via {cache.backend_name} cache (<10ms)!", flush=True)
+                    print(f"=======================================================\n")
+                    self._respond_json(200, {"status": "ok", "siteKey": "custom_live", "meta": cached_meta, "cached": True})
+                    return
+
                 model, device = get_model()
                 print(f"--> [Pipeline] Querying live Sentinel-2 STAC imagery & running PyTorch Model 1 U-Net on {device}...", flush=True)
 
@@ -392,6 +402,8 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
 
                 with open(out_dir / "meta.json", "w", encoding="utf-8") as f:
                     json.dump(meta, f, indent=2)
+
+                cache.set_json(cache_key, meta)
 
                 print(f"--> [Pipeline] Analysis COMPLETE for '{name}'! Output saved to web/public/demo-data/custom_live/meta.json")
                 print(f"=======================================================\n")

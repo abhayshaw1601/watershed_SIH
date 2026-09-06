@@ -218,8 +218,32 @@ if __name__ == "__main__":
     from config import AOI_BBOX, DATA_PROCESSED
     import matplotlib.pyplot as plt
 
-    with rasterio.open(DATA_PROCESSED / "kadwanchi_watershed_T2_stack6.tif") as src:
-        target_profile = src.profile.copy()
+    test_raster = DATA_PROCESSED / "kadwanchi_watershed_T2_stack6.tif"
+    if test_raster.exists():
+        with rasterio.open(test_raster) as src:
+            target_profile = src.profile.copy()
+    else:
+        from rasterio.warp import transform as warp_transform
+        from affine import Affine
+        utm_crs = f"EPSG:{utm_epsg_for_lon((AOI_BBOX[0] + AOI_BBOX[2]) / 2)}"
+        minx, miny, maxx, maxy = AOI_BBOX
+        (bx0, bx1), (by0, by1) = warp_transform("EPSG:4326", utm_crs, [minx, maxx], [miny, maxy])
+        b_minx, b_maxx = min(bx0, bx1), max(bx0, bx1)
+        b_miny, b_maxy = min(by0, by1), max(by0, by1)
+        res = 10.0
+        w = int(np.ceil((b_maxx - b_minx) / res))
+        h = int(np.ceil((b_maxy - b_miny) / res))
+        transform = Affine.translation(b_minx, b_maxy) * Affine.scale(res, -res)
+        target_profile = {
+            "driver": "GTiff",
+            "dtype": "uint8",
+            "nodata": 0,
+            "width": w,
+            "height": h,
+            "count": 1,
+            "crs": utm_crs,
+            "transform": transform,
+        }
 
     print(f"AOI_BBOX={AOI_BBOX}, buffered={buffered_bbox(AOI_BBOX)}")
     context = get_watershed_context(AOI_BBOX, target_profile)
