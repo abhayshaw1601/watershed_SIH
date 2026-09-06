@@ -37,20 +37,22 @@ export default function Navigation() {
           "flex items-center justify-between transition-all duration-500",
           scrolled
             ? "mx-4 mt-4 rounded-2xl border border-foreground/10 bg-background/95 px-6 py-3 shadow-sm backdrop-blur-md"
-            : "mx-0 mt-0 rounded-none border-transparent bg-transparent px-6 py-5 sm:px-10"
+            : "mx-0 mt-0 rounded-none border-transparent bg-transparent px-6 py-3.5 sm:px-10 sm:py-4"
         )}
       >
-        <Link href="/" className="font-display text-xl tracking-tight">
+        <Link href="/" className="font-sans text-lg font-semibold tracking-tight text-foreground">
           Watershed Signal
         </Link>
-        <nav className="hidden items-center gap-8 md:flex">
-          {LINKS.map((link) => (
-            <NavLink key={link.href} {...link} />
-          ))}
-        </nav>
-        <Button href="/try" size="md">
-          Open the App →
-        </Button>
+        <div className="flex items-center gap-8">
+          <nav className="hidden items-center gap-7 md:flex">
+            {LINKS.map((link) => (
+              <NavLink key={link.href} {...link} />
+            ))}
+          </nav>
+          <Button href="/try" size="md">
+            Open the App →
+          </Button>
+        </div>
       </div>
     </header>
   );
