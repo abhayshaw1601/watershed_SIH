@@ -176,7 +176,7 @@ export default function FieldTab({
     return [
       {
         id: "st_1",
-        name: "Station 1: Main Stream Nala Check Dam",
+        name: "Station 1: Main Stream Check Dam (Outlet)",
         sector: "Central Valley Stream",
         category: "water",
         lat: Number((cLat - dLat * 0.4).toFixed(5)),
@@ -184,11 +184,10 @@ export default function FieldTab({
         expectedFeature: "Masonry Check Dam with Silt Trap",
         defaultClass: "Water body / conservation structure",
         confidence: 94.8,
-        hasPhoto: true,
-        photoUrl: "/demo-data/checkdam_field_sample.jpg",
+        hasPhoto: false,
         photoTimestamp: "2024-03-12 11:24 IST",
-        groundTruth: "Water body with active masonry spillway pool",
-        actionNote: "Check dam intact; silt level at 24% capacity. Active surface retention confirmed.",
+        groundTruth: "Pending: water body with active masonry spillway pool",
+        actionNote: "Verify: check dam intact; measure silt level and surface retention.",
         whyNeeded: "Optical satellite reflectance cannot measure water depth beneath weed cover or detect masonry micro-cracks.",
         whatWillUncover: "Staff gauge water level, silt accumulation percentage, and masonry downstream apron scour depth.",
       },
@@ -482,14 +481,13 @@ export default function FieldTab({
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-foreground/10 pb-4">
           <div>
             <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-              Ground Truth Verification & Investigation Dossier
+              Ground Truth Verification
             </span>
             <h2 className="font-display text-xl font-bold mt-1 text-foreground">
-              Satellite AI Observation vs. Physical Ground Reality
+              Field Investigation Stations
             </h2>
-            <p className="text-xs text-muted-foreground mt-1 max-w-2xl leading-relaxed">
-              Verify PyTorch segmentation predictions against ground reality. If a field photo is missing, optical
-              satellite limitations are tagged along with required field surveyor protocols.
+            <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+              5 pre-configured ground stations. Click any to load its satellite prediction and field evidence dossier.
             </p>
           </div>
 
@@ -521,7 +519,7 @@ export default function FieldTab({
             </span>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {stations.map((stn) => {
               const isSelected = activeStation?.id === stn.id;
               const hasPhoto = Boolean(stn.hasPhoto || userStationPhotos[stn.id]);
@@ -529,46 +527,41 @@ export default function FieldTab({
                 <div
                   key={stn.id}
                   onClick={() => inspectCoordinate(stn.lat, stn.lon, stn)}
-                  className={`cursor-pointer rounded-xl border p-4 transition-all ${
+                  className={`cursor-pointer rounded-xl border p-3 transition-all ${
                     isSelected
                       ? "border-foreground bg-foreground/10 shadow-sm ring-1 ring-foreground/20"
                       : "border-foreground/10 bg-background hover:border-foreground/30 hover:bg-foreground/[0.02]"
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-foreground/5">
-                      {renderStationIcon(stn.category)}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground/5 shrink-0">
+                        {renderStationIcon(stn.category)}
+                      </div>
+                      <h4 className="text-xs font-semibold text-foreground line-clamp-1">{stn.name}</h4>
                     </div>
                     <span
-                      className={`rounded-md px-2 py-0.5 font-mono text-[10px] font-semibold uppercase flex items-center gap-1 ${
+                      className={`shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase flex items-center gap-1 ${
                         hasPhoto
                           ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                           : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
                       }`}
                     >
                       {hasPhoto ? (
-                        <>
-                          <CheckCircle size={11} weight="bold" />
-                          <span>Photo Attached</span>
-                        </>
+                        <><CheckCircle size={9} weight="bold" /><span>Photo</span></>
                       ) : (
-                        <>
-                          <Camera size={11} weight="bold" />
-                          <span>Awaiting Photo</span>
-                        </>
+                        <><Camera size={9} weight="bold" /><span>Needed</span></>
                       )}
                     </span>
                   </div>
-                  <h4 className="mt-2 text-sm font-semibold text-foreground line-clamp-1">{stn.name}</h4>
-                  <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{stn.expectedFeature}</p>
 
-                  <div className="mt-3 flex items-center justify-between pt-2 border-t border-foreground/5">
-                    <span className="font-mono text-[11px] text-muted-foreground">
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="font-mono text-[10px] text-muted-foreground">
                       {stn.lat.toFixed(3)}°N, {stn.lon.toFixed(3)}°E
                     </span>
-                    <span className="text-xs font-semibold text-sky-400 hover:underline flex items-center gap-0.5">
+                    <span className="text-[10px] font-semibold text-sky-400 flex items-center gap-0.5">
                       <span>{isSelected ? "Inspecting" : "Inspect"}</span>
-                      <CaretRight size={12} weight="bold" />
+                      <CaretRight size={10} weight="bold" />
                     </span>
                   </div>
                 </div>

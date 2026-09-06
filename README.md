@@ -142,6 +142,18 @@ watershed/
 
 ## Status and roadmap
 
+- [x] Live location pipeline (Sentinel-2 STAC + PyTorch GPU inference + DEM + health score)
+- [x] 7-tab analytics suite (Land Cover, Change, Health, Map, Field Investigation, Investigation, What-If Simulator)
+- [x] Dynamic investigation tab — land-cover-aware intervention defaults (urban/forest/barren detection)
+- [x] Diagnostic pillars derived from `meta.class_breakdown` and `meta.ndvi_trend` (no hardcoded numbers)
+- [x] Intervention defaults never cached to localStorage — always freshly generated from active site meta
+- [x] Pipeline `AbortController` — changing location mid-run cancels in-flight fetch and restarts cleanly
+- [x] FieldTab photo integrity — all 5 stations start `hasPhoto: false`; no fake placeholder images
+- [x] FieldTab UI simplified — compact station cards, shorter banner, lighter visual density
+- [x] Zero Hindi/regional-language terms in UI ("nala" replaced with "drainage channel" / "stream outlet")
+- [x] `display_name` fallback via `humanizeSiteKey()` for custom live locations
+- [x] Zero emoji policy — verified across all TSX source files
+- [x] `npm run build` passing at 0 TypeScript errors
 Working end-to-end: trained pipeline, rule-based change detection and alerts, live app with location search, watershed boundary/drainage delineation, intervention registry, dedicated policy simulator, dynamic catchment investigation with engineering recommendations, and geo-tagged photo field verification with ground-truth integrity (photo required before certifying AI-matches-ground claims). See [needed_inputs.md](needed_inputs.md) for what's still needed (real Bhuvan labels, real field photos) and [documentation.md](documentation.md) for the complete history of decisions, bugs found and fixed, and verification notes.
 
 ## License

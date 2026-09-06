@@ -124,7 +124,7 @@ export default function HealthTab({
             </div>
             <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
               {waterHa.toFixed(1)} ha surface water ({waterPercent.toFixed(1)}% of catchment).{" "}
-              {waterScore >= 60 ? "Adequate retention along primary nala." : "Severe pre-monsoon water deficit."}
+              {waterScore >= 60 ? "Adequate retention along primary drainage channel." : "Severe pre-monsoon water deficit."}
             </p>
           </div>
 

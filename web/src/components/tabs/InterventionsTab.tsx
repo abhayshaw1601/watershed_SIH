@@ -71,6 +71,14 @@ function clampToAoi(
   };
 }
 
+/** Human-readable fallback when display_name is missing from meta (e.g. custom_live) */
+function humanizeSiteKey(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\bCustom Live\b/, "Custom Live Location");
+}
+
 function getDefaultInterventionsForSite(siteKey: string, siteMeta: SiteMeta): Intervention[] {
   const bbox = siteMeta.bbox_wgs84;
   const latSpan = bbox.north - bbox.south;
@@ -78,113 +86,195 @@ function getDefaultInterventionsForSite(siteKey: string, siteMeta: SiteMeta): In
   const cLat = (bbox.south + bbox.north) / 2;
   const cLon = (bbox.west + bbox.east) / 2;
 
-  const prefix = siteMeta.display_name || "Catchment";
+  const prefix = siteMeta.display_name || humanizeSiteKey(siteKey);
 
   const p1 = clampToAoi(cLat - latSpan * 0.2, cLon - lonSpan * 0.15, bbox);
   const p2 = clampToAoi(cLat + latSpan * 0.25, cLon + lonSpan * 0.2, bbox);
   const p3 = clampToAoi(cLat - latSpan * 0.25, cLon + lonSpan * 0.25, bbox);
   const p4 = clampToAoi(cLat + latSpan * 0.1, cLon - lonSpan * 0.25, bbox);
 
+  // Detect dominant land-cover context from real class_breakdown data
+  const bd = siteMeta.class_breakdown || {};
+  const waterHa = bd["0"]?.hectares || 0;
+  const forestHa = bd["1"]?.hectares || 0;
+  const agriHa = bd["2"]?.hectares || 0;
+  const barrenHa = bd["4"]?.hectares || 0;
+  const builtHa = bd["5"]?.hectares || 0;
+  const fallowHa = bd["6"]?.hectares || 0;
+  const totalHa = Math.max(1, waterHa + forestHa + agriHa + barrenHa + builtHa + fallowHa + (bd["3"]?.hectares || 0));
+
+  const isUrban = builtHa / totalHa > 0.25;
+  const isForestDominated = forestHa / totalHa > 0.40;
+  const isAgriDominated = agriHa / totalHa > 0.30;
+  const isBarrenDominated = barrenHa / totalHa > 0.20;
+
+  // Context-specific problem/recommendation strings
+  const struct1Problem = isUrban
+    ? "Urban surface impermeability causing flash flood risk and near-zero groundwater recharge."
+    : "High monsoon runoff velocity causing progressive stream bed scouring and severe soil loss.";
+  const struct1Rec = isUrban
+    ? "Construct detention/retention basin or porous check barrier to slow urban runoff and allow infiltration."
+    : "Construct a 2.5m masonry check dam with stone pitching apron and upstream silt trap.";
+
+  const struct2Problem = isForestDominated
+    ? "Forest edge degradation with no perennial water source for wildlife and understorey moisture retention."
+    : isUrban
+    ? "Stormwater discharge with no on-site retention, overloading downstream drainage systems."
+    : "Dryland crop moisture stress during post-monsoon dry spells leading to yield drops.";
+  const struct2Rec = isForestDominated
+    ? "Construct wildlife water trough or small percolation pool at forest fringe low point."
+    : isUrban
+    ? "Install stormwater harvesting cistern (30m x 20m x 3m) integrated with urban green infrastructure."
+    : "Excavate 30m x 30m x 3m farm percolation pond to store 2,700 m\u00b3 farm surface runoff.";
+
+  const struct3Problem = isUrban
+    ? "Rapid storm runoff and minimal soil cover causing surface water contamination and drainage overflow."
+    : "Local groundwater overdraft with water table falling below 14m depth.";
+  const struct3Rec = isUrban
+    ? "Install infiltration gallery or sub-surface percolation trench in available green corridor."
+    : "De-silt percolation basin to restore natural gravel infiltration bed; raise waste weir by 0.5m.";
+
+  const struct4Problem = isForestDominated
+    ? "Forest edge slope instability with exposed mineral soil on steep ridges susceptible to landslide."
+    : isBarrenDominated
+    ? "Exposed barren ridge gradients experiencing accelerated sheet erosion and gully formation."
+    : "Pre-monsoon sheet wash carrying topsoil away from upper fallow gradients.";
+  const struct4Rec = isForestDominated
+    ? "Construct stone-lined drainage diversion bund to redirect slope flow into stable vegetated zones."
+    : isBarrenDominated
+    ? "Grade-stabilizer gully plugs and live barrier hedgerows of Agave/Dhaincha on exposed slopes."
+    : "Terrace 40 ha with continuous contour trenches (CCT) and vegetative vetiver grass strips.";
+
+  const struct2Type = isForestDominated || isUrban ? "Percolation Tank" : "Farm Pond";
+  const struct2Name = isForestDominated
+    ? `${prefix} Forest Edge Water Pool`
+    : isUrban
+    ? `${prefix} Stormwater Retention Basin`
+    : `${prefix} Farm Pond (Central Agrarian Sector)`;
+
   return [
     {
       id: `iv_${siteKey}_1`,
-      name: `${prefix} Check Dam #1 (Main Drainage Nala)`,
+      name: `${prefix} Check Dam #1 (Primary Stream Outlet)`,
       type: "Check Dam",
       condition: "operational",
       lat: p1.lat,
       lon: p1.lon,
       addedDate: "2024-03-15",
-      notes: "Masonry check dam on primary stream drainage to capture monsoon runoff and recharge aquifer.",
-      rechargeEstM3: 28500,
-      soilRetainedTonnes: 85,
+      notes: "Check dam on primary drainage outlet to capture monsoon runoff and recharge aquifer.",
+      rechargeEstM3: isUrban ? 18000 : 28500,
+      soilRetainedTonnes: isUrban ? 30 : 85,
       priority: "High",
-      targetProblem: "High monsoon runoff velocity causing progressive stream bed scouring and severe soil loss.",
-      recommendedChange: "Construct a 2.5m masonry check dam with stone pitching apron and upstream silt trap.",
+      targetProblem: struct1Problem,
+      recommendedChange: struct1Rec,
     },
     {
       id: `iv_${siteKey}_2`,
-      name: `${prefix} Farm Pond (Central Agrarian Sector)`,
-      type: "Farm Pond",
+      name: struct2Name,
+      type: struct2Type,
       condition: "operational",
       lat: p2.lat,
       lon: p2.lon,
       addedDate: "2024-04-10",
-      notes: "Rainwater harvesting pond with plastic lining, holds runoff for supplementary dry-season irrigation.",
-      rechargeEstM3: 12000,
-      soilRetainedTonnes: 25,
+      notes: "Water storage / retention structure for seasonal deficit mitigation.",
+      rechargeEstM3: isUrban ? 8000 : 12000,
+      soilRetainedTonnes: isUrban ? 10 : 25,
       priority: "Medium",
-      targetProblem: "Dryland crop moisture stress during post-monsoon dry spells leading to yield drops.",
-      recommendedChange: "Excavate 30m x 30m x 3m farm percolation pond to store 2,700 m³ farm surface runoff.",
+      targetProblem: struct2Problem,
+      recommendedChange: struct2Rec,
     },
     {
       id: `iv_${siteKey}_3`,
-      name: `${prefix} Groundwater Recharge Percolation Tank`,
+      name: isUrban ? `${prefix} Urban Infiltration Gallery` : `${prefix} Groundwater Recharge Percolation Tank`,
       type: "Percolation Tank",
       condition: "silted",
       lat: p3.lat,
       lon: p3.lon,
       addedDate: "2024-05-02",
-      notes: "Community percolation tank to recharge depleted downstream agricultural borewells.",
-      rechargeEstM3: 42000,
-      soilRetainedTonnes: 120,
+      notes: isUrban
+        ? "Sub-surface infiltration system to recharge depleted aquifer beneath impervious urban cover."
+        : "Community percolation tank to recharge depleted downstream agricultural borewells.",
+      rechargeEstM3: isUrban ? 25000 : 42000,
+      soilRetainedTonnes: isUrban ? 40 : 120,
       priority: "High",
-      targetProblem: "Local groundwater overdraft with water table falling below 14m depth.",
-      recommendedChange: "De-silt percolation basin to restore natural gravel infiltration bed; raise waste weir by 0.5m.",
+      targetProblem: struct3Problem,
+      recommendedChange: struct3Rec,
     },
     {
       id: `iv_${siteKey}_4`,
-      name: `${prefix} Contour Bund (Upper Slope Protection)`,
-      type: "Contour Bund",
+      name: `${prefix} ${isForestDominated ? "Slope Diversion Bund" : isBarrenDominated ? "Gully Plug (Erosion Control)" : "Contour Bund (Upper Slope Protection)"}`,
+      type: isForestDominated ? "Sub-surface Dyke" : "Contour Bund",
       condition: "operational",
       lat: p4.lat,
       lon: p4.lon,
       addedDate: "2024-05-18",
-      notes: "Earthen contour bund arresting sheet erosion across exposed barren ridge gradient.",
+      notes: isForestDominated
+        ? "Slope drainage control structure protecting forest integrity from erosive overland flow."
+        : "Earthen bund arresting sheet erosion across exposed gradient.",
       rechargeEstM3: 15000,
-      soilRetainedTonnes: 95,
+      soilRetainedTonnes: isBarrenDominated ? 130 : 95,
       priority: "Medium",
-      targetProblem: "Pre-monsoon sheet wash carrying topsoil away from upper fallow gradients.",
-      recommendedChange: "Terrace 40 ha with continuous contour trenches (CCT) and vegetative vetiver grass strips.",
+      targetProblem: struct4Problem,
+      recommendedChange: struct4Rec,
     },
   ];
 }
 
 function getSiteInterventions(site: string, meta: SiteMeta): Intervention[] {
   const key = `watershed-signal-interventions-${site}`;
+
+  // Auto-generated defaults are never cached — they're always freshly derived
+  // from the current meta (land-cover-aware). Only user-added entries (id starts
+  // with "iv_" followed by a timestamp, not the default pattern) are persisted.
+  const freshDefaults = getDefaultInterventionsForSite(site, meta);
+  const defaultIds = new Set(freshDefaults.map((d) => d.id));
+
   try {
     const raw = localStorage.getItem(key);
     if (raw) {
-      const parsed = JSON.parse(raw);
+      const parsed: Intervention[] = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Guarantee all coordinates are clamped inside the active AOI
-        return parsed.map((item: any) => {
-          const clamped = clampToAoi(item.lat, item.lon, meta.bbox_wgs84);
-          return {
-            ...item,
-            lat: clamped.lat,
-            lon: clamped.lon,
-            condition: item.condition || "operational",
-            rechargeEstM3: item.rechargeEstM3 || 20000,
-            soilRetainedTonnes: item.soilRetainedTonnes || 50,
-            priority: item.priority || "High",
-            targetProblem: item.targetProblem || "Unchecked surface runoff causing topsoil erosion.",
-            recommendedChange: item.recommendedChange || "Construct check dam or contour bunding structure.",
-          };
-        });
+        // Keep only user-added entries (not part of the auto-generated default set)
+        const userAdded = parsed.filter((item) => !defaultIds.has(item.id));
+        if (userAdded.length > 0) {
+          const clamped = userAdded.map((item) => {
+            const c = clampToAoi(item.lat, item.lon, meta.bbox_wgs84);
+            return {
+              ...item,
+              lat: c.lat,
+              lon: c.lon,
+              condition: item.condition || "operational",
+              rechargeEstM3: item.rechargeEstM3 || 20000,
+              soilRetainedTonnes: item.soilRetainedTonnes || 50,
+              priority: item.priority || "High",
+              targetProblem: item.targetProblem || "Unchecked surface runoff causing topsoil erosion.",
+              recommendedChange: item.recommendedChange || "Construct check dam or contour bunding structure.",
+            };
+          });
+          // Prepend user entries before the fresh defaults
+          return [...clamped, ...freshDefaults];
+        }
       }
     }
   } catch {}
 
-  const defaults = getDefaultInterventionsForSite(site, meta);
-  try {
-    localStorage.setItem(key, JSON.stringify(defaults));
-  } catch {}
-  return defaults;
+  return freshDefaults;
 }
 
 function saveSiteInterventions(site: string, items: Intervention[]) {
+  // Only save user-added entries (exclude auto-generated defaults to avoid stale data)
+  const freshDefaults = new Set(
+    items
+      .filter((i) => i.id.match(/^iv_[^_]+_[1-4]$/))
+      .map((i) => i.id)
+  );
+  const userOnly = items.filter((i) => !freshDefaults.has(i.id));
   try {
-    localStorage.setItem(`watershed-signal-interventions-${site}`, JSON.stringify(items));
+    if (userOnly.length > 0) {
+      localStorage.setItem(`watershed-signal-interventions-${site}`, JSON.stringify(userOnly));
+    } else {
+      localStorage.removeItem(`watershed-signal-interventions-${site}`);
+    }
   } catch {}
 }
 
@@ -532,61 +622,88 @@ export default function InterventionsTab({
           </div>
         </div>
 
-        {/* Diagnostic Pillars: What is affected */}
+        {/* Diagnostic Pillars: What is affected — derived from meta */}
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-          {/* Pillar 1: Water Balance & Infiltration */}
-          <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-xs font-semibold text-sky-400 flex items-center gap-1.5">
-                <Drop size={14} weight="bold" />
-                <span>Water Storage &amp; Runoff</span>
-              </span>
-              <Badge tone="teal">Moderate Stress</Badge>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              <strong>What is Affected:</strong> Unregulated monsoon sheet wash escapes along secondary streams,
-              recharging less than 18% of precipitation into shallow aquifers.
-            </p>
-            <div className="pt-2 border-t border-sky-500/15 font-mono text-[11px] text-sky-300">
-              Target: 4 New Check Dams &amp; 12 Farm Ponds
-            </div>
-          </div>
+          {(() => {
+            const breakdown = meta.class_breakdown || {};
+            const waterHa = breakdown["0"]?.hectares || 0;
+            const forestHa = breakdown["1"]?.hectares || 0;
+            const agriHa = breakdown["2"]?.hectares || 0;
+            const barrenHa = breakdown["4"]?.hectares || 0;
+            const fallowHa = breakdown["6"]?.hectares || 0;
+            const totalHa = Math.max(1, Object.values(breakdown).reduce((s: number, v: any) => s + (v?.hectares || 0), 0));
+            const infiltrationPct = Math.round(((waterHa + forestHa * 0.6) / totalHa) * 100);
+            const sedimentRate = barrenHa > 0 ? Math.max(3.2, Math.min(22, (barrenHa / totalHa) * 140)).toFixed(1) : "N/A";
+            const trendVal = typeof meta.ndvi_trend === "number" ? meta.ndvi_trend : 0;
+            const trendDisplay = (trendVal >= 0 ? "+" : "") + trendVal.toFixed(3);
+            const afforestedTargetHa = Math.round((barrenHa + fallowHa) * 0.6);
+            const bundingTargetHa = Math.round(fallowHa * 0.7);
+            const checkDamTarget = Math.max(2, Math.round(totalHa / 250));
+            const farmPondTarget = Math.max(4, Math.round(totalHa / 120));
 
-          {/* Pillar 2: Soil Stability & Gully Scour */}
-          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-xs font-semibold text-amber-400 flex items-center gap-1.5">
-                <ShieldCheck size={14} weight="bold" />
-                <span>Topsoil Erosion Corridors</span>
-              </span>
-              <Badge tone="amber">Active Gullies</Badge>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              <strong>What is Affected:</strong> Upper ridge fallow gradients experience 14.8 tonnes/ha/yr sediment loss
-              during early torrential downpours before crop canopy forms.
-            </p>
-            <div className="pt-2 border-t border-amber-500/15 font-mono text-[11px] text-amber-300">
-              Target: 140 ha Contour Bunding &amp; Gully Plugs
-            </div>
-          </div>
+            return (
+              <>
+                {/* Pillar 1: Water Balance & Infiltration */}
+                <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs font-semibold text-sky-400 flex items-center gap-1.5">
+                      <Drop size={14} weight="bold" />
+                      <span>Water Storage &amp; Runoff</span>
+                    </span>
+                    <Badge tone="teal">{infiltrationPct < 25 ? "High Stress" : "Moderate Stress"}</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    <strong>What is Affected:</strong> Unregulated monsoon sheet wash escapes along secondary drainage
+                    channels, recharging only ~{infiltrationPct}% of precipitation into shallow aquifers.
+                    {waterHa > 0 && <> Currently {waterHa.toFixed(1)} ha of surface water area detected.</>}
+                  </p>
+                  <div className="pt-2 border-t border-sky-500/15 font-mono text-[11px] text-sky-300">
+                    Target: {checkDamTarget} Check Dams &amp; {farmPondTarget} Farm Ponds in {meta.display_name || site}
+                  </div>
+                </div>
 
-          {/* Pillar 3: Vegetative Canopy & Resilience */}
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
-                <Tree size={14} weight="bold" />
-                <span>Biomass &amp; Canopy Trend</span>
-              </span>
-              <Badge tone="sage">Positive Trend</Badge>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              <strong>What is Affected:</strong> Multi-year NDVI trajectory shows positive recovery (+0.071), but
-              upper scrub ridges remain exposed without deep-rooted tree anchors.
-            </p>
-            <div className="pt-2 border-t border-emerald-500/15 font-mono text-[11px] text-emerald-300">
-              Target: 90 ha Ridge Afforestation Belts
-            </div>
-          </div>
+                {/* Pillar 2: Soil Stability & Gully Scour */}
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs font-semibold text-amber-400 flex items-center gap-1.5">
+                      <ShieldCheck size={14} weight="bold" />
+                      <span>Topsoil Erosion Corridors</span>
+                    </span>
+                    <Badge tone="amber">{barrenHa > 50 ? "Active Gullies" : "Low Risk"}</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    <strong>What is Affected:</strong> {barrenHa.toFixed(1)} ha of barren/degraded land
+                    ({((barrenHa / totalHa) * 100).toFixed(1)}% of catchment) experience estimated
+                    {sedimentRate !== "N/A" ? <> {sedimentRate} tonnes/ha/yr</> : " significant"} sediment
+                    loss during early torrential downpours before crop canopy forms.
+                  </p>
+                  <div className="pt-2 border-t border-amber-500/15 font-mono text-[11px] text-amber-300">
+                    Target: {bundingTargetHa} ha Contour Bunding &amp; Gully Plugs in {meta.display_name || site}
+                  </div>
+                </div>
+
+                {/* Pillar 3: Vegetative Canopy & Resilience */}
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                      <Tree size={14} weight="bold" />
+                      <span>Biomass &amp; Canopy Trend</span>
+                    </span>
+                    <Badge tone={trendVal >= 0 ? "sage" : "amber"}>{trendVal >= 0 ? "Positive Trend" : "Declining"}</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    <strong>What is Affected:</strong> Multi-year NDVI trajectory shows{" "}
+                    {trendVal >= 0 ? `positive recovery (${trendDisplay})` : `declining biomass (${trendDisplay})`},
+                    {" "}but {barrenHa.toFixed(1)} ha of exposed ridges remain without deep-rooted tree anchors.
+                    {forestHa > 0 && <> {forestHa.toFixed(1)} ha of forest/dense vegetation currently present.</>}
+                  </p>
+                  <div className="pt-2 border-t border-emerald-500/15 font-mono text-[11px] text-emerald-300">
+                    Target: {afforestedTargetHa} ha Ridge Afforestation in {meta.display_name || site}
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* Catchment Engineering KPI Bar */}
@@ -629,7 +746,7 @@ export default function InterventionsTab({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Check Dam #5 (Nala Confluence)"
+                  placeholder="e.g. Check Dam #5 (Stream Confluence)"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="mt-1.5 w-full rounded-lg border border-foreground/15 bg-background p-2.5 text-sm outline-none focus:border-foreground"
@@ -909,7 +1026,15 @@ export default function InterventionsTab({
 
                   <div className="rounded-xl border border-sage/20 bg-sage/5 p-3 col-span-2 sm:col-span-1">
                     <span className="text-muted-foreground block text-[10px] uppercase">Velocity Buffer</span>
-                    <span className="font-bold text-sage text-sm mt-1 block">~45% attenuation</span>
+                    <span className="font-bold text-sage text-sm mt-1 block">
+                      ~{selectedIntervention.type === "Check Dam"
+                        ? "48%"
+                        : selectedIntervention.type === "Farm Pond" || selectedIntervention.type === "Percolation Tank"
+                        ? "35%"
+                        : selectedIntervention.type === "Contour Bund"
+                        ? "62%"
+                        : "41%"} attenuation
+                    </span>
                     <span className="text-[10px] text-muted-foreground">Downstream protection</span>
                   </div>
                 </div>

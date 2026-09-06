@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { cn } from "@/lib/cn";
 import { PRESET_SITES, type SiteKey, type SiteMeta } from "@/lib/watershed-data";
@@ -45,6 +45,7 @@ export default function WatershedApp() {
   const [tab, setTab] = useState<TabKey>("land-cover");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Timer for live satellite pipeline
   useEffect(() => {
@@ -97,6 +98,13 @@ export default function WatershedApp() {
   }, [siteKey]);
 
   async function handleRunCustomPipeline(loc: CustomLocation) {
+    // Cancel any in-flight pipeline run before starting a new one
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setCustomLocation(loc);
     setIsAnalyzing(true);
     setCompletedInfo(null);
@@ -107,6 +115,7 @@ export default function WatershedApp() {
     try {
       const res = await fetch("http://127.0.0.1:8000/api/pipeline/run", {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lat: loc.lat,
@@ -135,6 +144,7 @@ export default function WatershedApp() {
         return;
       }
     } catch (err) {
+      if ((err as Error).name === "AbortError") return; // Silently discard cancelled requests
       console.error("Live server execution failed:", err);
       setIsAnalyzing(false);
       setLoadError(err instanceof Error ? err.message : String(err));

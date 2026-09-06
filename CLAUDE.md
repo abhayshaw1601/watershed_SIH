@@ -79,16 +79,17 @@ together when reporting status.
    typographic tag instead.
 
 9. **Field ground truth requires physical photo evidence.** The Field Investigation
-   tab (`FieldTab.tsx`) tracks `hasPhoto: boolean` per station. It is forbidden
-   to display "AI Matches Ground (Confirmed)" or allow the "Confirmed Match"
-   verdict button to be clicked without an attached field photo. When a photo
-   is absent, the UI must display two explicit tags:
+   tab (`FieldTab.tsx`) tracks `hasPhoto: boolean` per station. **All stations
+   must start with `hasPhoto: false`** — no station is pre-loaded with a hardcoded
+   `photoUrl` pointing to a file that may not exist. It is forbidden to display
+   "AI Matches Ground (Confirmed)" or allow the "Confirmed Match" verdict button
+   to be clicked without an attached field photo. When a photo is absent, the UI
+   must display two explicit tags:
    - **Why Verification is Needed** — citing the specific optical satellite
      limitation (e.g. 10m pixel averaging, shadow masking, spectral confusion).
    - **What On-Ground Inspection Will Uncover** — citing the concrete physical
      measurement the surveyor should record (staff gauge, caliper, penetrometer).
-   Do not soften this to a mere "unverified" badge — the distinction matters
-   for scientific and government credibility.
+   Do not soften this to a mere "unverified" badge.
 
 10. **AOI-coordinate safety for all tab structures.** Whenever a tab generates
     coordinates for structures (check dams, ground stations, interventions)
@@ -99,6 +100,25 @@ together when reporting status.
     offsets from the AOI center — even small multiplier drift can push points
     outside the bounding box for narrow watersheds.
 
-11. **Do not edit `todo.md`.** The `todo.md` file is managed manually by the
-    user and documents their own task planning. Do not modify it, even to mark
-    items as done — unless the user explicitly asks.
+12. **Intervention defaults are never cached to localStorage.** `getDefaultInterventionsForSite()`
+    reads `meta.class_breakdown` and generates contextually appropriate structure names
+    and problem statements for urban, forest-dominated, and barren-dominated sites.
+    These defaults are always freshly computed on every load — never written to
+    localStorage — so switching sites always reflects the actual land cover.
+    Only user-added structures (IDs that don’t match the `iv_{site}_{1–4}` pattern)
+    are persisted to localStorage.
+
+13. **Abort in-flight pipeline fetches on location change.** `WatershedApp` holds
+    `abortRef = useRef<AbortController | null>(null)`. Every call to `handleRunCustomPipeline`
+    must call `abortRef.current?.abort()` before creating a new controller and
+    passing its `signal` to the `fetch()`. `AbortError` is caught and silently
+    discarded (no error state set, no UI flash). Never allow two concurrent
+    pipeline fetches for different locations — the first one finishing last would
+    overwrite state with stale data.
+
+14. **No English approximations of regional-language technical terms.** The codebase
+    is English-only. Do not use Hindi/Urdu/Marathi words (e.g. "nala", "bandh",
+    "khala") even when they are common in Indian water-management contexts. Use
+    the equivalent English civil engineering term: "drainage channel", "check dam",
+    "stream outlet", etc. The one exception is "Contour Bund" — accepted as an
+    international IWDP/FAO term — which may remain.

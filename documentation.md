@@ -758,6 +758,12 @@ bugs. Fixed in `src/*.py` and the notebook generator, then verified:
 - Dedicated What-If Simulator — **done** (`SimulatorTab.tsx`): 4-slider policy simulator, 1-click presets, live health/recharge/soil/water-table projections, land cover transition matrix, ROI table.
 - Health tab cleanup — **done**: redundant inline simulator removed; 4 sub-index cards + alerts + formula accordion remain; clean banner links to dedicated Simulator tab.
 - Zero emoji rule — **enforced**: automated regex scan on `src/**/*.tsx` confirms 0 unicode emojis; all icons are `@phosphor-icons/react` SVG.
+- Land-cover-aware intervention defaults — **done**: `getDefaultInterventionsForSite()` now reads `meta.class_breakdown` to detect urban (>25% built-up), forest-dominated (>40% forest), and barren-dominated (>20% barren) sites and generates contextually appropriate structure names, problem statements, and recommendations. Kolkata (urban) gets Stormwater Retention Basin + Urban Infiltration Gallery; Donimalai (barren) gets Gully Plug + Agave hedgerows; Tamhini (forest) gets Forest Edge Water Pool.
+- localStorage intervention defaults — **removed from cache**: auto-generated defaults are never written to localStorage, only user-added structures are persisted. Switching sites always shows freshly-computed, land-cover-aware defaults with zero cache pollution.
+- Pipeline abort on location change — **done**: `WatershedApp` now holds `abortRef = useRef<AbortController>()`. Every new location search aborts the previous in-flight `fetch()` before starting a new one. `AbortError` is silently discarded so no error flash appears.
+- FieldTab photo integrity — **tightened**: Station 1 no longer has a hardcoded fake `photoUrl`. All 5 stations start with `hasPhoto: false` and show "Why Verification is Needed" + "What Will Uncover" until a real photo is attached or simulated.
+- FieldTab text density — **reduced**: banner shortened to one-liner, station cards condensed (icon + name on same row, badge shrunk to "Photo"/"Needed", removed expectedFeature paragraph, tighter padding).
+- `display_name` fallback — **done**: `humanizeSiteKey()` converts `custom_live` → "Custom Live Location" so pillar footers and structure names are human-readable for any live location.
 - SIH presentation/pitch materials — **drafted** (`pitch_deck_draft.md`, `scaling_narrative.md`); keep numbers in sync with section 9 (49.1%/78.2%, 4 sites).
 
 ## 11. Source-document context
@@ -823,13 +829,15 @@ user, ranked by impact, to move from "functional" to "hackathon-winnable."
   - `GET /api/interventions`, `POST /api/interventions` — Physical intervention registry.
   - `GET /api/field-log`, `POST /api/field-log` — Field verification GPS log.
 - Frontend auto-falls back to static demo data in `/public/demo-data/` if the API is offline.
-- 7-tab analytics suite (as of Sep 2026 session):
+- Pipeline fetch is `AbortController`-gated: switching location mid-run cancels the previous request and starts fresh. `AbortError` is silently discarded.
+- 7-tab analytics suite (Sep 2026):
   - `LULCTab.tsx` — Land Cover split-slider
   - `ChangeTab.tsx` — Structural change detection
-  - `HealthTab.tsx` — 4 sub-index diagnostics + alerts + formula accordion + simulator navigation banner
+  - `HealthTab.tsx` — 4 sub-index diagnostics + alerts + formula accordion + simulator banner
   - `MapTab.tsx` — Leaflet/DEM dynamic layer
-  - `FieldTab.tsx` — Ground truth verification with `hasPhoto` integrity logic; "Why Verification is Needed" + "What Will Uncover" tags when photo missing; "Confirmed Match" verdict gated on photo
-  - `InterventionsTab.tsx` — Dynamic investigation: "What is Changed / Affected" + "Recommended Engineering Changes" + AOI-clamped structure coordinates
-  - `SimulatorTab.tsx` — Dedicated What-If policy simulator with 4 sliders, presets, live ecological metrics, transition matrix, ROI table
-- Zero emoji policy enforced across all TSX/TS source files (verified by automated regex scan).
+  - `FieldTab.tsx` — 5 ground stations, all `hasPhoto: false` by default (no fake placeholders); photo-gated verdicts; compact card UI; "Why Verification is Needed" + "What Will Uncover" tags when photo missing
+  - `InterventionsTab.tsx` — Dynamic investigation: land-cover-aware default structures (urban/forest/barren detection); diagnostic pillars computed from `meta.class_breakdown` and `meta.ndvi_trend`; AOI-clamped coordinates; no "nala" references
+  - `SimulatorTab.tsx` — Dedicated What-If policy simulator
+- Intervention defaults never cached to localStorage; always freshly generated from active site's `meta`. Only user-added structures (non-default IDs) are persisted.
+- Zero emoji policy enforced across all TSX/TS source files.
 - `npm run build` verified at zero TypeScript errors (Next.js 16.3.4 Turbopack).
