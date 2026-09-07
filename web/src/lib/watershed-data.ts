@@ -40,6 +40,7 @@ export type SiteMeta = {
   change_summary?: Record<string, ChangeSummaryEntry>;
   ndvi_trend?: number;
   alerts?: Alert[];
+  radius_km?: number;
   watershed_caveat?: string;
   watershed_meta?: {
     watershed_id?: string;

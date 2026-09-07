@@ -37,6 +37,13 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
 
   const totalValidHa = Math.max(1, waterHa + forestHa + agriHa + sparseHa + barrenHa + builtHa + fallowHa);
 
+  // Dynamic limits based on active radius and spatial extent
+  const radiusKm = meta.radius_km || 2.0;
+  const maxDams = Math.max(4, Math.min(32, Math.round(radiusKm * 3.5)));
+  const maxPonds = Math.max(6, Math.min(60, Math.round(radiusKm * 5.0)));
+  const maxAfforestation = Math.max(10, Math.round(barrenHa > 0 ? barrenHa : totalValidHa * 0.15));
+  const maxBunding = Math.max(10, Math.round(fallowHa > 0 ? fallowHa : totalValidHa * 0.20));
+
   // Baseline weighted score
   const baselineScore = meta.health_score ?? 67.9;
 
@@ -92,29 +99,40 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
     const simScore = Math.min(100, Math.max(0, Number((weightedSum / totalValidHa).toFixed(1))));
     const diff = Number((simScore - baselineScore).toFixed(1));
 
-    // Yield equations derived from Central Ground Water Board (CGWB) & IWDP norms:
     // Check dam: ~22.5 ML recharge/yr; Farm pond: ~10.5 ML recharge/yr; Contour bunding: ~0.08 ML/ha
     const rechargedML = Number(
       (checkDams * 22.5 + farmPonds * 10.5 + contourBunding * 0.08 + ridgeAfforestation * 0.05).toFixed(1)
     );
 
-    // Topsoil saved: contour bunds save ~3.2 tonnes/ha/yr; afforestation saves ~4.5 tonnes/ha/yr; check dams trap ~70 tonnes/dam/yr
-    const soilSaved = Math.round(
-      contourBunding * 3.2 + ridgeAfforestation * 4.5 + checkDams * 70 + farmPonds * 18
+    // Soil conserved: afforestation ~12 t/ha/yr saved, contour bunding ~8 t/ha/yr saved, check dam ~45 t/yr trapped
+    const soilSaved = Number(
+      (ridgeAfforestation * 12 + contourBunding * 8 + checkDams * 45).toFixed(0)
     );
 
-    // Aquifer water table rise in meters
-    const tableRise = Number(Math.min(4.8, (rechargedML / 25) * 0.95).toFixed(2));
+    // Water table rise estimate (m) based on recharge over total catchment area (specific yield Sy ~ 0.03 for hard-rock Deccan traps)
+    const rechargeM3 = rechargedML * 1000;
+    const catchmentAreaM2 = totalValidHa * 10000;
+    const sy = 0.03;
+    const riseM = Number(Math.min(4.5, (rechargeM3 / (catchmentAreaM2 * sy))).toFixed(2));
 
-    // Drought risk reduction percentage
-    const droughtReduction = Math.min(68, Math.round(diff * 3.4 + checkDams * 4.2 + farmPonds * 2.1));
+    // Drought risk reduction percentage (capped at 75%)
+    const droughtReduction = Math.min(
+      75,
+      Math.round(
+        (checkDams * 4.5 +
+          farmPonds * 2.2 +
+          (contourBunding / totalValidHa) * 40 +
+          (ridgeAfforestation / totalValidHa) * 35) *
+          1.2
+      )
+    );
 
     return {
       simulatedScore: simScore,
       scoreDiff: diff,
       waterRechargedML: rechargedML,
       soilSavedTonnes: soilSaved,
-      waterTableRiseM: tableRise,
+      waterTableRiseM: riseM,
       droughtRiskReductionPct: droughtReduction,
       simWaterHa: Number(newWater.toFixed(1)),
       simForestHa: Number(newForest.toFixed(1)),
@@ -123,9 +141,9 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
     };
   }, [
     checkDams,
-    farmPonds,
     ridgeAfforestation,
     contourBunding,
+    farmPonds,
     waterHa,
     forestHa,
     agriHa,
@@ -137,26 +155,26 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
     baselineScore,
   ]);
 
-  // Strategy Presets
+  // Strategy Presets adapted dynamically to active radius scale
   function applyPreset(type: "max_recharge" | "erosion_defense" | "balanced" | "reset") {
     switch (type) {
       case "max_recharge":
-        setCheckDams(6);
-        setFarmPonds(10);
-        setRidgeAfforestation(40);
-        setContourBunding(80);
+        setCheckDams(Math.max(2, Math.round(maxDams * 0.75)));
+        setFarmPonds(Math.max(3, Math.round(maxPonds * 0.8)));
+        setRidgeAfforestation(Math.round(maxAfforestation * 0.25));
+        setContourBunding(Math.round(maxBunding * 0.4));
         break;
       case "erosion_defense":
-        setCheckDams(3);
-        setFarmPonds(2);
-        setRidgeAfforestation(140);
-        setContourBunding(200);
+        setCheckDams(Math.max(1, Math.round(maxDams * 0.4)));
+        setFarmPonds(Math.max(1, Math.round(maxPonds * 0.2)));
+        setRidgeAfforestation(Math.round(maxAfforestation * 0.8));
+        setContourBunding(Math.round(maxBunding * 0.85));
         break;
       case "balanced":
-        setCheckDams(4);
-        setFarmPonds(6);
-        setRidgeAfforestation(90);
-        setContourBunding(140);
+        setCheckDams(Math.max(2, Math.round(maxDams * 0.5)));
+        setFarmPonds(Math.max(2, Math.round(maxPonds * 0.5)));
+        setRidgeAfforestation(Math.round(maxAfforestation * 0.5));
+        setContourBunding(Math.round(maxBunding * 0.5));
         break;
       case "reset":
         setCheckDams(0);
@@ -300,7 +318,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               <input
                 type="range"
                 min={0}
-                max={8}
+                max={maxDams}
                 step={1}
                 value={checkDams}
                 onChange={(e) => setCheckDams(Number(e.target.value))}
@@ -308,7 +326,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               />
               <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
                 <span>Intercepts peak gully discharge</span>
-                <span>~22.5 ML recharge per dam</span>
+                <span>Max: {maxDams} dams for {radiusKm.toFixed(1)} km AOI</span>
               </div>
             </div>
 
@@ -324,15 +342,15 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               <input
                 type="range"
                 min={0}
-                max={180}
-                step={15}
+                max={maxAfforestation}
+                step={Math.max(1, Math.round(maxAfforestation / 20))}
                 value={ridgeAfforestation}
                 onChange={(e) => setRidgeAfforestation(Number(e.target.value))}
                 className="mt-3 w-full accent-emerald-500 cursor-pointer"
               />
               <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
                 <span>Root-anchoring canopy interception</span>
-                <span>Max: {barrenHa.toFixed(0)} ha barren land</span>
+                <span>Max: {maxAfforestation} ha ({barrenHa > 0 ? "barren land" : "target zone"})</span>
               </div>
             </div>
 
@@ -348,15 +366,15 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               <input
                 type="range"
                 min={0}
-                max={250}
-                step={25}
+                max={maxBunding}
+                step={Math.max(1, Math.round(maxBunding / 20))}
                 value={contourBunding}
                 onChange={(e) => setContourBunding(Number(e.target.value))}
                 className="mt-3 w-full accent-amber-500 cursor-pointer"
               />
               <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
                 <span>Halts progressive sheet wash on slopes</span>
-                <span>Max: {fallowHa.toFixed(0)} ha fallow land</span>
+                <span>Max: {maxBunding} ha ({fallowHa > 0 ? "fallow land" : "target area"})</span>
               </div>
             </div>
 
@@ -372,7 +390,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               <input
                 type="range"
                 min={0}
-                max={12}
+                max={maxPonds}
                 step={1}
                 value={farmPonds}
                 onChange={(e) => setFarmPonds(Number(e.target.value))}
@@ -380,7 +398,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               />
               <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
                 <span>Micro-catchment rainfall harvesting</span>
-                <span>~10.5 ML buffer per pond</span>
+                <span>Max: {maxPonds} ponds for {radiusKm.toFixed(1)} km AOI</span>
               </div>
             </div>
           </div>

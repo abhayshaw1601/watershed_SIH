@@ -68,15 +68,19 @@ def geocode(place_name: str):
     """Free-text place name -> (lat, lon, display_name), via OpenStreetMap Nominatim. None if not found."""
     resp = requests.get(
         "https://nominatim.openstreetmap.org/search",
-        params={"q": place_name, "format": "json", "limit": 1, "countrycodes": "in"},
-        headers={"User-Agent": "watershed-signal-sih2026-demo/1.0 (hackathon prototype)"},
+        params={"q": place_name, "format": "json", "limit": 1, "countrycodes": "in", "accept-language": "en"},
+        headers={
+            "User-Agent": "watershed-signal-sih2026-demo/1.0 (hackathon prototype)",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
         timeout=10,
     )
     resp.raise_for_status()
     results = resp.json()
     if not results:
         return None
-    return float(results[0]["lat"]), float(results[0]["lon"]), results[0].get("display_name", place_name)
+    name = results[0].get("name") or results[0].get("display_name", place_name).split(",")[0].strip()
+    return float(results[0]["lat"]), float(results[0]["lon"]), name
 
 
 def bbox_around(lat: float, lon: float, half_km: float = HALF_KM):

@@ -14,8 +14,8 @@ export default function ChangeTab({ site, meta }: { site: string; meta: SiteMeta
   if (!meta.has_change_pair || !meta.change_summary || !meta.change_class_colors) {
     return (
       <div className="rounded-2xl border border-foreground/10 p-10 text-center text-sm text-muted-foreground">
-        This is a single-date, training-only site (no T1→T2 pair) — no multi-year change comparison available.
-        Select Kadwanchi Watershed or enter custom coordinates for live change analysis.
+        This is a single-date acquisition (no T1→T2 pair) — no multi-year change comparison available.
+        Enter a location name or custom coordinates above to analyze change over time.
       </div>
     );
   }
@@ -94,7 +94,7 @@ export default function ChangeTab({ site, meta }: { site: string; meta: SiteMeta
             {blendMode === "overlay-t2" && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={`/demo-data/${site}/t2.png`}
+                src={`/demo-data/${site}/t2.png?r=${meta.radius_km || 2.0}&d=${meta.t2_date || "now"}`}
                 alt="T2 Recent Satellite"
                 className="absolute inset-0 h-full w-full object-cover"
               />
@@ -102,7 +102,7 @@ export default function ChangeTab({ site, meta }: { site: string; meta: SiteMeta
             {blendMode === "overlay-t1" && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={`/demo-data/${site}/t1.png`}
+                src={`/demo-data/${site}/t1.png?r=${meta.radius_km || 2.0}&d=${meta.t2_date || "now"}`}
                 alt="T1 Baseline Satellite"
                 className="absolute inset-0 h-full w-full object-cover"
               />
@@ -111,7 +111,7 @@ export default function ChangeTab({ site, meta }: { site: string; meta: SiteMeta
             {/* Change Overlay Image */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={`/demo-data/${site}/change.png`}
+              src={`/demo-data/${site}/change.png?r=${meta.radius_km || 2.0}&d=${meta.t2_date || "now"}`}
               alt="Change detection map"
               style={{
                 opacity: blendMode === "change" ? 1 : opacity / 100,

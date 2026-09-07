@@ -236,6 +236,7 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
             lat = payload.get("lat")
             lon = payload.get("lon")
             name = payload.get("name", "Custom Location")
+            radius_km = float(payload.get("radius_km", 2.0))
 
             if lat is None or lon is None:
                 self._respond_json(400, {"error": "Missing lat or lon"})
@@ -246,21 +247,24 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 lon = float(lon)
                 from aoi_picker import bbox_around, run_pipeline
 
-                bbox = bbox_around(lat, lon)
+                bbox = bbox_around(lat, lon, half_km=radius_km)
                 print(f"\n=======================================================")
-                print(f"--> [Pipeline] INCOMING REQUEST for '{name}' at ({lat:.4f}, {lon:.4f})")
+                print(f"--> [Pipeline] INCOMING REQUEST for '{name}' at ({lat:.4f}, {lon:.4f}) with radius {radius_km:.1f} km")
                 print(f"--> [Pipeline] Bounding Box: {bbox}")
 
-                out_dir = WEB_DEMO_DIR / "custom_live"
+                site_key = f"custom_live_{int(round(radius_km * 10))}"
+                out_dir = WEB_DEMO_DIR / site_key
                 out_dir.mkdir(parents=True, exist_ok=True)
+                legacy_dir = WEB_DEMO_DIR / "custom_live"
+                legacy_dir.mkdir(parents=True, exist_ok=True)
 
                 # Tier-2 Cache Check (Memory / Redis)
-                cache_key = f"aoi_meta:{lat:.4f}_{lon:.4f}"
+                cache_key = f"aoi_meta:{lat:.4f}_{lon:.4f}_{radius_km:.1f}"
                 cached_meta = cache.get_json(cache_key)
-                if cached_meta is not None and (out_dir / "meta.json").exists():
-                    print(f"--> [Cache HIT] Instant response for '{name}' via {cache.backend_name} cache (<10ms)!", flush=True)
+                if cached_meta is not None and (out_dir / "meta.json").exists() and (out_dir / "t2.png").exists():
+                    print(f"--> [Cache HIT] Instant response for '{name}' ({radius_km:.1f} km) via {cache.backend_name} cache (<10ms)!", flush=True)
                     print(f"=======================================================\n")
-                    self._respond_json(200, {"status": "ok", "siteKey": "custom_live", "meta": cached_meta, "cached": True})
+                    self._respond_json(200, {"status": "ok", "siteKey": site_key, "meta": cached_meta, "cached": True})
                     return
 
                 model, device = get_model()
@@ -268,7 +272,7 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
 
                 (results, change_map, health, trend, alerts,
                  watershed_mask, drainage_network, pour_point, watershed_caveat, watershed_context) = run_pipeline(
-                    bbox, "custom_live", model, device,
+                    bbox, site_key, model, device,
                     on_step=lambda m: print(f"    --> {m}", flush=True)
                 )
 
@@ -278,7 +282,7 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 t2_date = str(results["T2"]["date"])
                 print(f"--> [Pipeline] Real Sentinel-2 scenes acquired & segmented successfully by Model 1 U-Net!", flush=True)
 
-                # Export PNGs to web/public/demo-data/custom_live/
+                # Export PNGs to both radius-specific and legacy directory
                 rgb_t1 = colorize(t1_map, CLASS_COLORS)
                 rgb_t2 = colorize(t2_map, CLASS_COLORS)
                 rgb_ch = colorize(change_map, CHANGE_CLASS_COLORS)
@@ -367,8 +371,14 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     for sx, sy in stems:
                         draw_branch(sx, sy, outlet_x, outlet_y, depth=0, max_depth=3)
 
-                boundary_img.save(out_dir / "watershed_boundary.png")
-                drainage_img.save(out_dir / "drainage_network.png")
+                for target_dir in (out_dir, legacy_dir):
+                    Image.fromarray(rgb_t1).save(target_dir / "t1.png")
+                    Image.fromarray(rgb_t1).save(target_dir / "classmap_t1.png")
+                    Image.fromarray(rgb_t2).save(target_dir / "t2.png")
+                    Image.fromarray(rgb_t2).save(target_dir / "classmap_t2.png")
+                    Image.fromarray(rgb_ch).save(target_dir / "change.png")
+                    boundary_img.save(target_dir / "watershed_boundary.png")
+                    drainage_img.save(target_dir / "drainage_network.png")
 
                 # Compute BBox WGS84
                 left, bottom, right, top = bbox
@@ -382,7 +392,7 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 }
 
                 meta = {
-                    "key": "custom_live",
+                    "key": site_key,
                     "display_name": name,
                     "bbox_wgs84": bbox_wgs84,
                     "class_names": {str(k): v for k, v in CLASS_NAMES.items()},
@@ -397,6 +407,7 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     "change_summary": change_summary,
                     "ndvi_trend": round(float(trend), 4),
                     "alerts": alerts,
+                    "radius_km": radius_km,
                     "watershed_caveat": watershed_caveat,
                     "watershed_meta": {
                         "watershed_id": watershed_context.get("watershed_id") if isinstance(watershed_context, dict) else None,
@@ -406,14 +417,15 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     } if watershed_context else None,
                 }
 
-                with open(out_dir / "meta.json", "w", encoding="utf-8") as f:
-                    json.dump(meta, f, indent=2)
+                for target_dir in (out_dir, legacy_dir):
+                    with open(target_dir / "meta.json", "w", encoding="utf-8") as f:
+                        json.dump(meta, f, indent=2)
 
                 cache.set_json(cache_key, meta)
 
-                print(f"--> [Pipeline] Analysis COMPLETE for '{name}'! Output saved to web/public/demo-data/custom_live/meta.json")
+                print(f"--> [Pipeline] Analysis COMPLETE for '{name}'! Output saved to web/public/demo-data/{site_key}/meta.json")
                 print(f"=======================================================\n")
-                self._respond_json(200, {"status": "ok", "siteKey": "custom_live", "meta": meta})
+                self._respond_json(200, {"status": "ok", "siteKey": site_key, "meta": meta})
 
             except Exception as e:
                 traceback.print_exc()

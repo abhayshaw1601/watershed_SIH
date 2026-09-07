@@ -181,8 +181,11 @@ def _reverse_geocode(lat: float, lon: float) -> dict:
     try:
         resp = requests.get(
             "https://nominatim.openstreetmap.org/reverse",
-            params={"lat": lat, "lon": lon, "format": "json", "zoom": 12},
-            headers={"User-Agent": "watershed-signal-sih2026-demo/1.0 (hackathon prototype)"},
+            params={"lat": lat, "lon": lon, "format": "json", "zoom": 12, "accept-language": "en"},
+            headers={
+                "User-Agent": "watershed-signal-sih2026-demo/1.0 (hackathon prototype)",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
             timeout=5,
         )
         if resp.ok:

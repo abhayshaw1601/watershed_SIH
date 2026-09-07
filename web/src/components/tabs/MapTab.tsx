@@ -1,17 +1,26 @@
 "use client";
 
-import { useState } from "react";
-import { MapContainer, TileLayer, ImageOverlay } from "react-leaflet";
+import { useState, useEffect } from "react";
+import { MapContainer, TileLayer, ImageOverlay, Circle, ScaleControl, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import type { SiteMeta } from "@/lib/watershed-data";
 import { rgbToCss } from "@/lib/watershed-data";
 import { Warning } from "@phosphor-icons/react";
+
+function MapRecenter({ bounds }: { bounds: [[number, number], [number, number]] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.fitBounds(bounds, { padding: [35, 35] });
+  }, [map, bounds]);
+  return null;
+}
 
 export default function MapTab({ site, meta }: { site: string; meta: SiteMeta }) {
   const [opacity, setOpacity] = useState(0.65);
   const [showLulc, setShowLulc] = useState(true);
   const [showBoundary, setShowBoundary] = useState(true);
   const [showDrainage, setShowDrainage] = useState(true);
+  const [showRadiusCircle, setShowRadiusCircle] = useState(true);
 
   const { west, south, east, north } = meta.bbox_wgs84;
   const bounds: [[number, number], [number, number]] = [
@@ -20,12 +29,14 @@ export default function MapTab({ site, meta }: { site: string; meta: SiteMeta })
   ];
   const center: [number, number] = [(south + north) / 2, (west + east) / 2];
   
-  const lulcImg = `/demo-data/${site}/${meta.has_change_pair ? "t2" : "s1"}.png`;
-  const boundaryImg = `/demo-data/${site}/watershed_boundary.png`;
-  const drainageImg = `/demo-data/${site}/drainage_network.png`;
+  const cacheKey = `?r=${meta.radius_km || 2.0}&d=${meta.t2_date || "now"}`;
+  const lulcImg = `/demo-data/${site}/${meta.has_change_pair ? "t2" : "s1"}.png${cacheKey}`;
+  const boundaryImg = `/demo-data/${site}/watershed_boundary.png${cacheKey}`;
+  const drainageImg = `/demo-data/${site}/drainage_network.png${cacheKey}`;
 
   const legend = Object.entries(meta.class_names);
   const nodataPixels = (meta.class_breakdown["255"]?.pixels ?? 0) > 0;
+  const totalHectares = Object.values(meta.class_breakdown).reduce((sum, v) => sum + (v.hectares || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -43,7 +54,16 @@ export default function MapTab({ site, meta }: { site: string; meta: SiteMeta })
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_20rem]">
         {/* Map Container */}
         <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-foreground/10">
-          <MapContainer center={center} zoom={13} scrollWheelZoom className="h-full w-full">
+          <MapContainer
+            key={`map-${site}-${south.toFixed(4)}-${west.toFixed(4)}-${north.toFixed(4)}-${east.toFixed(4)}-${meta.radius_km || 2}`}
+            bounds={bounds}
+            center={center}
+            zoom={13}
+            scrollWheelZoom
+            className="h-full w-full"
+          >
+            <MapRecenter bounds={bounds} />
+            <ScaleControl position="bottomleft" metric={true} imperial={false} />
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -56,7 +76,35 @@ export default function MapTab({ site, meta }: { site: string; meta: SiteMeta })
 
             {/* 3. DEM-Derived Drainage Network (Cyan stream paths) */}
             {showDrainage && <ImageOverlay url={drainageImg} bounds={bounds} opacity={1.0} />}
+
+            {/* 4. Explicit Spatial Radius Buffer Circle */}
+            {showRadiusCircle && (
+              <Circle
+                center={center}
+                radius={(meta.radius_km || 2.0) * 1000}
+                pathOptions={{
+                  color: "#2563eb",
+                  fillColor: "#3b82f6",
+                  fillOpacity: 0.1,
+                  weight: 2.5,
+                  dashArray: "6 6",
+                }}
+              />
+            )}
           </MapContainer>
+
+          {/* Real-time Radius & Extent HUD Tag */}
+          <div className="pointer-events-none absolute top-3 left-3 z-[1000] rounded-xl bg-background/95 backdrop-blur-md px-3.5 py-2 font-mono text-xs shadow-md border border-foreground/15 flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+              <span className="font-semibold text-foreground">
+                AOI Radius: {meta.radius_km ? `${meta.radius_km.toFixed(1)} km` : "2.0 km"}
+              </span>
+            </div>
+            <div className="text-[11px] text-muted-foreground font-mono">
+              Spatial Window: {((meta.radius_km || 2.0) * 2).toFixed(1)} km × {((meta.radius_km || 2.0) * 2).toFixed(1)} km · {totalHectares.toFixed(0)} ha
+            </div>
+          </div>
 
           <div className="pointer-events-none absolute bottom-3 right-3 rounded-lg bg-background/90 px-3 py-1.5 font-mono text-[11px] shadow-sm backdrop-blur-sm border border-foreground/10">
             {center[0].toFixed(4)}°N · {center[1].toFixed(4)}°E
@@ -72,6 +120,21 @@ export default function MapTab({ site, meta }: { site: string; meta: SiteMeta })
             </div>
             
             <div className="mt-4 space-y-3">
+              {/* Radius Circle Toggle */}
+              <label className="flex items-center justify-between cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={showRadiusCircle}
+                    onChange={(e) => setShowRadiusCircle(e.target.checked)}
+                    className="accent-foreground rounded"
+                  />
+                  <span className="text-sm font-medium">
+                    {meta.radius_km ? `${meta.radius_km.toFixed(1)} km` : "2.0 km"} Radius Circle
+                  </span>
+                </div>
+                <span className="h-2.5 w-6 rounded-full border border-blue-500/50 bg-blue-500/20" />
+              </label>
               {/* LULC Toggle */}
               <label className="flex items-center justify-between cursor-pointer">
                 <div className="flex items-center gap-2">
