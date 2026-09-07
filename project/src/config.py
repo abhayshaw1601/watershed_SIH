@@ -15,8 +15,6 @@ AOI-agnostic.
 
 from pathlib import Path
 
-import rasterio
-
 # ---- Paths ----
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_RAW = PROJECT_ROOT / "data" / "raw"
@@ -38,6 +36,7 @@ def atomic_raster_write(out_path, data, profile, descriptions=None):
     later, often in a totally different function, which is confusing to
     debug. Hit for real in this project (see documentation.md) after several
     abrupt session restarts left a truncated live-fetched raster on disk."""
+    import rasterio
     out_path = Path(out_path)
     tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
     try:

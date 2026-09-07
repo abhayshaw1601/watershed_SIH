@@ -29,14 +29,31 @@ sys.path.insert(0, str(PROJECT_ROOT / "app"))
 import numpy as np
 from PIL import Image, ImageDraw
 
+import csv
 import os
 from config import (
-    MODELS_DIR, CLASS_NAMES, CLASS_COLORS, CHANGE_CLASS_NAMES,
+    DATA_PROCESSED, MODELS_DIR, CLASS_NAMES, CLASS_COLORS, CHANGE_CLASS_NAMES,
     NUM_CLASSES, NODATA_CLASS
 )
-import intervention_registry as reg
-from geo_photo import read_validation_log
 from cache_manager import cache
+
+INTERVENTIONS_LOG = DATA_PROCESSED.parent / "interventions.csv"
+VALIDATION_LOG = DATA_PROCESSED.parent / "field_validation_log.csv"
+
+
+def read_interventions() -> list[dict]:
+    if not INTERVENTIONS_LOG.exists():
+        return []
+    with open(INTERVENTIONS_LOG, encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def read_validation_log() -> list[dict]:
+    if not VALIDATION_LOG.exists():
+        return []
+    with open(VALIDATION_LOG, encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
 
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", 3000))
@@ -159,7 +176,7 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
             self._respond_json(200, data)
 
         elif path == "/api/interventions":
-            records = reg.read_interventions()
+            records = read_interventions()
             self._respond_json(200, records)
 
         elif path == "/api/field-log":
