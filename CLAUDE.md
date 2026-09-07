@@ -71,3 +71,66 @@ together when reporting status.
    input from `needed_inputs.md` gets resolved (e.g. AOI decided), or the
    project's status changes materially, update the relevant doc rather than
    letting it go stale.
+
+8. **Zero emojis in the web frontend — ever.** The entire `web/src/` tree must
+   have zero Unicode emoji characters. All icons use `@phosphor-icons/react`
+   SVG only. This is enforced by a Node.js regex scan before every build.
+   Never add emoji to TSX/TS files even as a quick label — use an icon or a
+   typographic tag instead.
+
+9. **Field ground truth requires physical photo evidence.** The Field Investigation
+   tab (`FieldTab.tsx`) tracks `hasPhoto: boolean` per station. **All stations
+   must start with `hasPhoto: false`** — no station is pre-loaded with a hardcoded
+   `photoUrl` pointing to a file that may not exist. It is forbidden to display
+   "AI Matches Ground (Confirmed)" or allow the "Confirmed Match" verdict button
+   to be clicked without an attached field photo. When a photo is absent, the UI
+   must display two explicit tags:
+   - **Why Verification is Needed** — citing the specific optical satellite
+     limitation (e.g. 10m pixel averaging, shadow masking, spectral confusion).
+   - **What On-Ground Inspection Will Uncover** — citing the concrete physical
+     measurement the surveyor should record (staff gauge, caliper, penetrometer).
+   Do not soften this to a mere "unverified" badge.
+
+10. **AOI-coordinate safety for all tab structures.** Whenever a tab generates
+    coordinates for structures (check dams, ground stations, interventions)
+    relative to the active AOI bounding box, use the `clampToAoi()` function
+    (or equivalent clamping logic) to guarantee every coordinate falls strictly
+    inside `[south + 15% * latSpan, north - 15% * latSpan]` and
+    `[west + 15% * lonSpan, east - 15% * lonSpan]`. Never generate unclamped
+    offsets from the AOI center — even small multiplier drift can push points
+    outside the bounding box for narrow watersheds.
+
+12. **Intervention defaults are never cached to localStorage.** `getDefaultInterventionsForSite()`
+    reads `meta.class_breakdown` and generates contextually appropriate structure names
+    and problem statements for urban, forest-dominated, and barren-dominated sites.
+    These defaults are always freshly computed on every load — never written to
+    localStorage — so switching sites always reflects the actual land cover.
+    Only user-added structures (IDs that don’t match the `iv_{site}_{1–4}` pattern)
+    are persisted to localStorage.
+
+13. **Abort in-flight pipeline fetches on location change.** `WatershedApp` holds
+    `abortRef = useRef<AbortController | null>(null)`. Every call to `handleRunCustomPipeline`
+    must call `abortRef.current?.abort()` before creating a new controller and
+    passing its `signal` to the `fetch()`. `AbortError` is caught and silently
+    discarded (no error state set, no UI flash). Never allow two concurrent
+    pipeline fetches for different locations — the first one finishing last would
+    overwrite state with stale data.
+
+14. **No English approximations of regional-language technical terms.** The codebase
+    is English-only. Do not use Hindi/Urdu/Marathi words (e.g. "nala", "bandh",
+    "khala") even when they are common in Indian water-management contexts. Use
+    the equivalent English civil engineering term: "drainage channel", "check dam",
+    "stream outlet", etc. The one exception is "Contour Bund" — accepted as an
+    international IWDP/FAO term — which may remain.
+
+15. **Scientific validation consistency.** Always cite the empirically evaluated metrics:
+    - Model 1 LULC: 82.6% pixel accuracy, 61.4% mean IoU (`outputs/lulc_validation.json`)
+    - Change Detection: 0.897 precision, 0.925 recall, 0.911 F1 score, 0.837 IoU (`outputs/change_validation.json`)
+    - Field Photo Agreement: 86.7% match rate across 15 ground-truth observations (`data/field_validation_log.csv`)
+    Never fabricate synthetic metrics or blur baseline training metrics with final validation benchmarks.
+
+16. **Government platform positioning & DEM boundary naming.** Always label the delineated
+    catchment boundary strictly as `"DEM-Derived Watershed Boundary (Copernicus GLO-30, 30m)"`.
+    Never claim "Official Watershed Boundary" unless authorized government vector layers are loaded.
+    Position the system as an analytical decision-support layer sitting on top of SRISHTI-DRISHTI,
+    Bhuvan, and Bhoonidhi using the adapter contracts defined in `data_adapter_design.md`.

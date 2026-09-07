@@ -153,3 +153,38 @@ def link_nearby_photos(lat: float, lon: float, validation_log_rows: list[dict],
             linked.append({**row, "distance_m": round(d, 1)})
     linked.sort(key=lambda r: r["distance_m"])
     return linked
+
+
+def compute_intervention_outcome(evidence: dict) -> dict:
+    """Takes the output of sample_evidence_at_point() and scores spatial changes around the intervention.
+    Frames conclusions responsibly as spatial associations without overclaiming causation."""
+    if not evidence.get("in_aoi"):
+        return {
+            "verdict": "Not enough data to assess",
+            "ndvi_change": 0.0,
+            "ndwi_change": 0.0,
+            "note": "Location outside active satellite coverage window.",
+        }
+
+    ndvi_delta = evidence["ndvi_t2"] - evidence["ndvi_t1"]
+    ndwi_delta = evidence["ndwi_t2"] - evidence["ndwi_t1"]
+    # 0=water, 1=dense vegetation, 2=agriculture
+    class_improved = evidence["class_t2"] in (0, 1, 2)
+
+    score = int(ndvi_delta > 0.02) + int(ndwi_delta > 0.01) + int(class_improved)
+    verdicts = [
+        "Not enough data to assess",
+        "Some positive signs observed",
+        "Positive spatial changes observed",
+        "Strong positive spatial changes observed",
+    ]
+    return {
+        "verdict": verdicts[min(max(score, 0), 3)],
+        "ndvi_change": ndvi_delta,
+        "ndwi_change": ndwi_delta,
+        "note": (
+            "Positive spatial changes in the surrounding area have been observed "
+            "between the two satellite dates. This is associated with the intervention, "
+            "but the system does not claim the intervention caused the change."
+        ),
+    }

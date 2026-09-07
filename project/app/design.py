@@ -241,15 +241,26 @@ SEVERITY_STYLE = {
 }
 
 
-def render_alert_card(severity: str, message: str, area_ha) -> str:
-    color, glyph = SEVERITY_STYLE.get(severity, (TEAL, "ℹ"))
+def render_alert_card(severity: str, message: str, area_ha, evidence: list[str] | None = None) -> str:
+    color, glyph = SEVERITY_STYLE.get(severity, (TEAL, "INFO"))
     area = f'<span style="color:{INK_MUTED}; font-family:{FONT_MONO}; font-size:12px;"> &middot; {area_ha} ha</span>' if area_ha else ""
+    
+    evidence_html = ""
+    if evidence:
+        items = "".join(f'<li style="margin-bottom:3px; color:{INK}; font-size:13px;">{e}</li>' for e in evidence)
+        evidence_html = f"""<div style="margin-top:8px; padding-top:6px; border-top:1px dashed {RULE};">
+<div class="wsig-eyebrow" style="font-size:10px; margin-bottom:4px;">Supporting Evidence</div>
+<ul style="margin:0 0 0 16px; padding:0; list-style-type:disc;">
+{items}
+</ul>
+</div>"""
+
     return f"""<div style="display:flex; gap:12px; padding:12px 14px; margin-bottom:8px; border-radius:3px;
 background:{PAPER}; border:1px solid {RULE}; border-left:3px solid {color};">
-<div style="color:{color}; font-size:16px; line-height:1.4;">{glyph}</div>
 <div style="flex:1;">
-<span style="font-family:{FONT_MONO}; font-size:11px; letter-spacing:0.08em; color:{color};">{severity}</span>
+<span style="font-family:{FONT_MONO}; font-size:11px; letter-spacing:0.08em; font-weight:600; color:{color};">{severity}</span>
 <div style="color:{INK}; font-size:14px; margin-top:2px;">{message}{area}</div>
+{evidence_html}
 </div>
 </div>"""
 
@@ -286,3 +297,169 @@ The model fetches live satellite imagery for that spot and runs the full analysi
 land cover, change detection, condition score, and alerts &mdash; usually in 20&ndash;60 seconds.
 </p>
 </div>"""
+
+
+def render_observation_card(
+    photo_caption: str,
+    lat: float,
+    lon: float,
+    scene_date: str,
+    watershed_meta: dict,
+    nearest_intervention: dict | None,
+    spatial_evidence: dict,
+    assessment: dict,
+) -> str:
+    """Unified field observation and satellite interpretation card matching official report aesthetics."""
+    verdict = assessment.get("verdict", "Not enough data")
+    confidence = assessment.get("confidence", "Low")
+    bullets = assessment.get("bullets", [])
+    recommendation = assessment.get("recommendation", "")
+
+    if "Positive" in verdict:
+        accent_color = SAGE
+    elif "Caution" in verdict:
+        accent_color = AMBER
+    elif "Degradation" in verdict:
+        accent_color = DANGER
+    else:
+        accent_color = INK_MUTED
+
+    admin = watershed_meta.get("admin", {})
+    state = admin.get("state", "Maharashtra")
+    district = admin.get("district", "Jalna")
+    block = admin.get("block", "Jalna")
+    ws_id = watershed_meta.get("watershed_id", "DEM-Derived")
+    ws_name = watershed_meta.get("watershed_name", "DEM-Derived Watershed Boundary")
+    area_ha = watershed_meta.get("area_ha", 0.0)
+
+    if nearest_intervention:
+        iv_text = (
+            f"<strong>{nearest_intervention.get('name', 'Intervention')}</strong> "
+            f"({nearest_intervention.get('type', 'Structure')}) &middot; "
+            f"<em>{nearest_intervention.get('distance_m', 0):.0f} m from observation</em>"
+        )
+    else:
+        iv_text = '<span style="color:var(--ink-muted);">None recorded within 500 m</span>'
+
+    # Evidence rows
+    cls_name = spatial_evidence.get("class_t2_name", "Satellite reading")
+    t1_cls = spatial_evidence.get("class_t1_name")
+    cls_display = f"{cls_name}" + (f" (previously: {t1_cls})" if t1_cls and t1_cls != cls_name else "")
+
+    ndvi2 = spatial_evidence.get("ndvi_t2")
+    ndvi1 = spatial_evidence.get("ndvi_t1")
+    if ndvi2 is not None and ndvi1 is not None:
+        ndvi_display = f"{ndvi2:.2f} (earlier: {ndvi1:.2f})"
+    elif ndvi2 is not None:
+        ndvi_display = f"{ndvi2:.2f}"
+    else:
+        ndvi_display = "N/A"
+
+    ndwi2 = spatial_evidence.get("ndwi_t2")
+    ndwi1 = spatial_evidence.get("ndwi_t1")
+    if ndwi2 is not None and ndwi1 is not None:
+        ndwi_display = f"{ndwi2:.2f} (earlier: {ndwi1:.2f})"
+    elif ndwi2 is not None:
+        ndwi_display = f"{ndwi2:.2f}"
+    else:
+        ndwi_display = "N/A"
+
+    drainage_connected = spatial_evidence.get("drainage_connected", False)
+    drainage_display = "Connected to active drainage network" if drainage_connected else "Outside primary flow channels"
+
+    change_name = spatial_evidence.get("change_name", "No significant change detected")
+
+    bullets_html = "".join(f'<li style="margin-bottom:4px; font-size:13px; color:{INK};">{b}</li>' for b in bullets)
+    if not bullets_html:
+        bullets_html = f'<li style="font-size:13px; color:{INK_MUTED};">Baseline observations collected.</li>'
+
+    return f"""<div class="wsig-panel" style="border-left:4px solid {accent_color}; margin-top:16px;">
+<!-- Header -->
+<div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px; border-bottom:1px solid {RULE}; padding-bottom:10px; margin-bottom:12px;">
+<div>
+<div class="wsig-eyebrow">Field Observation &middot; Interpretation</div>
+<div style="font-family:{FONT_MONO}; font-size:13px; color:{INK};">
+GPS: {lat:.5f}&deg;N&nbsp;&nbsp;{lon:.5f}&deg;E &middot; Imagery Date: {scene_date}
+</div>
+</div>
+<div>
+<span style="font-family:{FONT_MONO}; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:{accent_color}; border:1px solid {accent_color}; border-radius:3px; padding:3px 8px;">
+Confidence: {confidence}
+</span>
+</div>
+</div>
+
+<!-- Watershed Context -->
+<div style="border-bottom:1px solid {RULE}; padding-bottom:12px; margin-bottom:12px;">
+<div class="wsig-eyebrow">Watershed Context</div>
+<div style="font-family:{FONT_DISPLAY}; font-size:18px; font-weight:700; color:{INK}; margin-top:2px;">
+{ws_name}
+</div>
+<div style="font-size:13px; color:{INK_MUTED}; margin-top:2px;">
+District: {district} &middot; Block: {block} &middot; State: {state} &middot; Catchment Area: <span style="font-family:{FONT_MONO}; color:{INK};">{area_ha:,.1f} ha</span>
+</div>
+<div style="font-family:{FONT_MONO}; font-size:11px; color:{INK_MUTED}; margin-top:2px;">ID: {ws_id}</div>
+</div>
+
+<!-- Associated Intervention -->
+<div style="border-bottom:1px solid {RULE}; padding-bottom:12px; margin-bottom:12px;">
+<div class="wsig-eyebrow">Associated Intervention (Within 500 m)</div>
+<div style="font-size:14px; color:{INK}; margin-top:4px;">
+{iv_text}
+</div>
+</div>
+
+<!-- Spatial Evidence Grid -->
+<div style="border-bottom:1px solid {RULE}; padding-bottom:12px; margin-bottom:12px;">
+<div class="wsig-eyebrow" style="margin-bottom:8px;">Spatial & Satellite Evidence</div>
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:10px;">
+<div style="background:{PAPER_ALT}; padding:8px 10px; border-radius:3px; border:1px solid {RULE};">
+<div class="wsig-eyebrow" style="font-size:10px;">Land Cover</div>
+<div style="font-size:13px; color:{INK}; font-weight:500;">{cls_display}</div>
+</div>
+<div style="background:{PAPER_ALT}; padding:8px 10px; border-radius:3px; border:1px solid {RULE};">
+<div class="wsig-eyebrow" style="font-size:10px;">Vegetation Index (NDVI)</div>
+<div style="font-family:{FONT_MONO}; font-size:13px; color:{INK};">{ndvi_display}</div>
+</div>
+<div style="background:{PAPER_ALT}; padding:8px 10px; border-radius:3px; border:1px solid {RULE};">
+<div class="wsig-eyebrow" style="font-size:10px;">Water Index (NDWI)</div>
+<div style="font-family:{FONT_MONO}; font-size:13px; color:{INK};">{ndwi_display}</div>
+</div>
+<div style="background:{PAPER_ALT}; padding:8px 10px; border-radius:3px; border:1px solid {RULE};">
+<div class="wsig-eyebrow" style="font-size:10px;">Topographic Drainage</div>
+<div style="font-size:13px; color:{INK};">{drainage_display}</div>
+</div>
+<div style="background:{PAPER_ALT}; padding:8px 10px; border-radius:3px; border:1px solid {RULE}; grid-column: 1 / -1;">
+<div class="wsig-eyebrow" style="font-size:10px;">Temporal Change Detection</div>
+<div style="font-size:13px; color:{INK};">{change_name}</div>
+</div>
+</div>
+</div>
+
+<!-- Assessment Verdict & Bullets -->
+<div style="border-bottom:1px solid {RULE}; padding-bottom:12px; margin-bottom:12px;">
+<div class="wsig-eyebrow">Integrated Assessment</div>
+<div style="display:flex; align-items:baseline; gap:10px; margin-top:4px;">
+<div style="font-family:{FONT_DISPLAY}; font-size:22px; font-weight:700; color:{accent_color};">
+{verdict}
+</div>
+</div>
+<div style="margin-top:8px;">
+<div style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:{INK_MUTED}; margin-bottom:4px;">
+Analysis Findings:
+</div>
+<ul style="margin:0 0 0 16px; padding:0; list-style-type:disc;">
+{bullets_html}
+</ul>
+</div>
+</div>
+
+<!-- Recommendation -->
+<div>
+<div class="wsig-eyebrow">Recommended Action</div>
+<p style="font-size:14px; color:{INK}; margin:4px 0 0 0; line-height:1.5;">
+{recommendation}
+</p>
+</div>
+</div>"""
+

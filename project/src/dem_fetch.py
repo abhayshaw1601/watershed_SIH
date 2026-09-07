@@ -67,54 +67,78 @@ def _fetch_and_cache_tile(tile_id: str, cache_dir: Path) -> Path:
     same tile (all 4 current AOIs do, for example) reuses this fetch."""
     cache_path = cache_dir / f"{tile_id}.tif"
     if cache_path.exists():
+        print(f"--> [DEM] Tile {tile_id} found in local cache.", flush=True)
         return cache_path
     cache_dir.mkdir(parents=True, exist_ok=True)
+    print(f"--> [DEM] Downloading Copernicus 30m DEM tile {tile_id} from AWS Open Data (~35MB, one-time fetch)...", flush=True)
     vsi_url = f"/vsicurl/{dem_tile_url(tile_id)}"
     with rasterio.open(vsi_url) as src:
         data = src.read()
         profile = src.profile.copy()
     atomic_raster_write(cache_path, data, profile)
-    print(f"Cached DEM tile {tile_id} -> {cache_path}  shape={data.shape}")
+    print(f"--> [DEM] Cached DEM tile {tile_id} -> {cache_path}  shape={data.shape}", flush=True)
     return cache_path
 
 
 def fetch_dem_mosaic(bbox: tuple, cache_dir: Path = DEM_CACHE_DIR):
-    """Fetch/cache every tile intersecting bbox, mosaic if >1, clip to bbox.
-    Returns (elevation (1,H,W) float32, profile) in EPSG:4326 (the DEM's
-    native CRS -- reprojection to local UTM happens in
-    watershed_delineation.py, right before flow routing, not here)."""
+    """Fetch/cache DEM elevation data for bbox.
+    Uses windowed Cloud-Optimized GeoTIFF (COG) HTTP range streaming with
+    local disk slice caching so only the required ~300x300 pixel area is
+    streamed, avoiding slow 35-70MB full-tile downloads.
+    Returns (elevation (1,H,W) float32, profile) in EPSG:4326.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    minx, miny, maxx, maxy = bbox
+    crop_cache_path = cache_dir / f"crop_{minx:.4f}_{miny:.4f}_{maxx:.4f}_{maxy:.4f}.tif"
+
+    if crop_cache_path.exists():
+        with rasterio.open(crop_cache_path) as src:
+            elevation = src.read()
+            profile = src.profile.copy()
+        print(f"--> [DEM] Loaded AOI elevation from local cache ({crop_cache_path.name}).", flush=True)
+        return elevation, profile
+
     tile_ids = dem_tiles_for_bbox(bbox)
-    tile_paths = [_fetch_and_cache_tile(t, cache_dir) for t in tile_ids]
+    print(f"--> [DEM] Streaming windowed Copernicus 30m DEM for {len(tile_ids)} tile(s): {tile_ids}...", flush=True)
 
-    if len(tile_paths) == 1:
-        with rasterio.open(tile_paths[0]) as src:
-            elevation, transform, profile = src.read(), src.transform, src.profile.copy()
-    else:
-        from contextlib import ExitStack
-        with ExitStack() as stack:
-            srcs = [stack.enter_context(rasterio.open(p)) for p in tile_paths]
-            elevation, transform = rio_merge(srcs)
-            profile = srcs[0].profile.copy()
-            profile.update(height=elevation.shape[1], width=elevation.shape[2], transform=transform)
-
-    # nodata=-9999 explicit: the source tiles declare no nodata value at all, so
-    # rio_mask's crop=True (which rounds the output window to whole pixels,
-    # sometimes one row/col larger than the geometry itself covers) would
-    # otherwise silently fill that sliver with 0 -- indistinguishable from a
-    # real sea-level elevation reading. Caught for real: a single full-width
-    # row of exact-0.0 pixels at the AOI's southern edge, confirmed via a
-    # direct row/col check to be 100% border pixels, not a genuine gap in the
-    # source data (the raw tiles have zero 0-valued pixels).
     NODATA = -9999.0
-    geom = [mapping(box(*bbox))]
-    with MemoryFile() as memfile:
-        with memfile.open(**profile) as tmp:
-            tmp.write(elevation)
-        with memfile.open() as tmp:
-            clipped, clip_transform = rio_mask(tmp, geom, crop=True, nodata=NODATA)
+    with rasterio.Env(
+        GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
+        GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES",
+        VSI_CACHE=True,
+    ):
+        sources = []
+        try:
+            for t in tile_ids:
+                local_tile = cache_dir / f"{t}.tif"
+                if local_tile.exists():
+                    src = rasterio.open(local_tile)
+                else:
+                    vsi_url = f"/vsicurl/{dem_tile_url(t)}"
+                    src = rasterio.open(vsi_url)
+                sources.append(src)
 
-    profile.update(height=clipped.shape[1], width=clipped.shape[2], transform=clip_transform, nodata=NODATA)
+            if len(sources) == 1:
+                geom = [mapping(box(*bbox))]
+                clipped, clip_transform = rio_mask(sources[0], geom, crop=True, nodata=NODATA)
+                profile = sources[0].profile.copy()
+                profile.update(height=clipped.shape[1], width=clipped.shape[2], transform=clip_transform, nodata=NODATA)
+            else:
+                clipped, clip_transform = rio_merge(sources, bounds=bbox, nodata=NODATA)
+                profile = sources[0].profile.copy()
+                profile.update(height=clipped.shape[1], width=clipped.shape[2], transform=clip_transform, nodata=NODATA)
+        finally:
+            for s in sources:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
     clipped, profile = _trim_nodata_border(clipped, profile, NODATA)
+
+    # Save the fast cropped slice locally for subsequent instant access
+    atomic_raster_write(crop_cache_path, clipped, profile)
+    print(f"--> [DEM] Cached AOI elevation slice -> {crop_cache_path.name}  shape={clipped.shape}", flush=True)
     return clipped, profile
 
 

@@ -1,5 +1,5 @@
 import HeroCanvas from "@/components/HeroCanvas";
-import CharReveal from "@/components/CharReveal";
+import TypewriterText from "@/components/TypewriterText";
 import Marquee from "@/components/Marquee";
 import Button from "@/components/ui/Button";
 import FeatureRow, {
@@ -30,11 +30,12 @@ export default function Home() {
     <>
       {/* ---------------------------------------------------------------- Hero */}
       <section className="relative overflow-hidden">
-        <div className="hairline-grid" />
-        <div className="absolute inset-y-0 right-0 hidden w-1/2 lg:block">
-          <HeroCanvas />
-        </div>
-        <div className="relative mx-auto max-w-7xl px-6 pb-20 pt-20 sm:px-10 sm:pt-28">
+        <div className="relative flex min-h-[calc(100vh-4.25rem)] flex-col justify-center">
+          <div className="hairline-grid" />
+          <div className="pointer-events-none absolute inset-0 opacity-40 transition-opacity duration-700 sm:opacity-50 lg:pointer-events-auto lg:inset-y-0 lg:left-auto lg:right-0 lg:w-1/2 lg:opacity-100">
+            <HeroCanvas />
+          </div>
+          <div className="relative mx-auto w-full max-w-7xl px-6 pb-12 pt-6 sm:px-10 sm:pb-16 sm:pt-8">
           <div className="max-w-2xl">
             <div className="animate-fade-up flex items-center gap-3" style={{ animationDelay: "300ms" }}>
               <span className="h-px w-8 bg-foreground/40" />
@@ -43,22 +44,21 @@ export default function Home() {
               </span>
             </div>
 
-            <h1 className="mt-8 font-display leading-[0.9] tracking-tight text-[clamp(3rem,9vw,7rem)]">
+            <h1 className="mt-4 font-display leading-[0.9] tracking-tight text-[clamp(3rem,9vw,7rem)] sm:mt-5">
               <span className="animate-fade-up block">The platform</span>
               <span className="relative block">
-                to <CharReveal text="analyze" startDelayMs={400} staggerMs={45} />
+                to <TypewriterText words={["analyze", "monitor", "classify", "preserve", "restore", "forecast"]} />
               </span>
             </h1>
 
             <p
-              className="animate-fade-up mt-8 max-w-xl text-xl text-muted-foreground sm:text-2xl"
+              className="animate-fade-up mt-6 max-w-xl text-xl text-muted-foreground sm:text-2xl leading-relaxed"
               style={{ animationDelay: "200ms" }}
             >
-              Free satellite imagery, a trained U-Net, and rule-based alerts — turning geo-coded
-              images into watershed decisions, for PS-26015.
+              Empowering communities and conservationists to understand what our planet is telling us — turning silent satellite observations into thoughtful, proactive care for every living watershed.
             </p>
 
-            <div className="animate-fade-up mt-10 flex flex-wrap gap-4" style={{ animationDelay: "500ms" }}>
+            <div className="animate-fade-up mt-8 flex flex-wrap gap-4" style={{ animationDelay: "500ms" }}>
               <Button href="/try">Start Analysis →</Button>
               <Button href="#how-it-works" variant="outline">
                 See how it works
@@ -66,6 +66,7 @@ export default function Home() {
             </div>
           </div>
         </div>
+      </div>
 
         <div className="relative border-t border-foreground/10 py-8">
           <Marquee>

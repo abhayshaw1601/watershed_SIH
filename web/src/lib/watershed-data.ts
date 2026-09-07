@@ -21,14 +21,18 @@ export type Alert = {
   rule: string;
   message: string;
   area_ha: number | null;
+  evidence?: string[];
 };
 
 export type SiteMeta = {
   key: string;
+  display_name?: string;
   bbox_wgs84: { west: number; south: number; east: number; north: number };
   class_names: Record<string, string>;
   class_colors: Record<string, [number, number, number]>;
   has_change_pair: boolean;
+  t1_date?: string;
+  t2_date?: string;
   health_score: number;
   class_breakdown: Record<string, ClassBreakdownEntry>;
   change_class_names?: Record<string, string>;
@@ -36,6 +40,14 @@ export type SiteMeta = {
   change_summary?: Record<string, ChangeSummaryEntry>;
   ndvi_trend?: number;
   alerts?: Alert[];
+  radius_km?: number;
+  watershed_caveat?: string;
+  watershed_meta?: {
+    watershed_id?: string;
+    watershed_name?: string;
+    admin?: { state?: string; district?: string; block?: string };
+    area_ha?: number;
+  };
 };
 
 export type SiteIndexEntry = {
@@ -52,7 +64,7 @@ export const PRESET_SITES = [
   { key: "jayakwadi_dam_water", displayName: "Jayakwadi Dam", state: "Maharashtra" },
 ] as const;
 
-export type SiteKey = (typeof PRESET_SITES)[number]["key"];
+export type SiteKey = (typeof PRESET_SITES)[number]["key"] | "custom_live";
 
 export function displayImageFor(meta: SiteMeta): "t1" | "t2" | "s1" {
   return meta.has_change_pair ? "t2" : "s1";

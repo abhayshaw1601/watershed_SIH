@@ -103,41 +103,57 @@ def clip_scene_to_stack(item, bbox, out_path):
     this is a resample/pad, not a real reprojection) makes any uncovered
     area fall out as legitimate zero/nodata pixels instead, which
     NODATA_CLASS already handles correctly everywhere downstream."""
-    band_arrays = []
-    profile = None
-    target_transform = target_h = target_w = None
+    from concurrent.futures import ThreadPoolExecutor
 
-    for band in S2_BANDS:
-        href = item.assets[band].href
-        with rasterio.open(href) as src:
-            if target_transform is None:
-                minx, miny, maxx, maxy = transform_bounds("EPSG:4326", src.crs, *bbox)
-                res = src.res[0]
-                target_w = max(1, round((maxx - minx) / res))
-                target_h = max(1, round((maxy - miny) / res))
-                target_transform = rasterio.transform.from_origin(minx, maxy, res, res)
-                profile = src.profile.copy()
-                profile.update(
-                    height=target_h, width=target_w, transform=target_transform,
-                    count=len(S2_BANDS), dtype="uint16",
-                )
-
-            band_data = np.zeros((target_h, target_w), dtype="uint16")
-            reproject(
-                source=rasterio.band(src, 1), destination=band_data,
-                src_transform=src.transform, src_crs=src.crs,
-                dst_transform=target_transform, dst_crs=src.crs,
-                resampling=Resampling.nearest,
-                src_nodata=0, dst_nodata=0,
+    # Pre-calculate target grid using first band to ensure strict alignment
+    first_href = item.assets[S2_BANDS[0]].href
+    with rasterio.Env(
+        GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
+        GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES",
+        VSI_CACHE=True,
+    ):
+        with rasterio.open(first_href) as src0:
+            minx, miny, maxx, maxy = transform_bounds("EPSG:4326", src0.crs, *bbox)
+            res = src0.res[0]
+            target_w = max(1, round((maxx - minx) / res))
+            target_h = max(1, round((maxy - miny) / res))
+            target_transform = rasterio.transform.from_origin(minx, maxy, res, res)
+            target_crs = src0.crs
+            profile = src0.profile.copy()
+            profile.update(
+                height=target_h, width=target_w, transform=target_transform,
+                count=len(S2_BANDS), dtype="uint16",
             )
-            band_arrays.append(band_data)
 
+    def fetch_single_band(band_name):
+        href = item.assets[band_name].href
+        with rasterio.Env(
+            GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
+            GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES",
+            VSI_CACHE=True,
+        ):
+            with rasterio.open(href) as src:
+                band_data = np.zeros((target_h, target_w), dtype="uint16")
+                reproject(
+                    source=rasterio.band(src, 1), destination=band_data,
+                    src_transform=src.transform, src_crs=src.crs,
+                    dst_transform=target_transform, dst_crs=target_crs,
+                    resampling=Resampling.nearest,
+                    src_nodata=0, dst_nodata=0,
+                )
+                return band_name, band_data
+
+    # Stream all 4 Sentinel-2 bands in parallel over concurrent HTTP connections
+    with ThreadPoolExecutor(max_workers=len(S2_BANDS)) as pool:
+        band_results = dict(pool.map(fetch_single_band, S2_BANDS))
+
+    band_arrays = [band_results[b] for b in S2_BANDS]
     stack = np.stack(band_arrays, axis=0)
     atomic_raster_write(out_path, stack, profile, descriptions=tuple(S2_BANDS))
     n_nodata = int(np.all(stack == 0, axis=0).sum())
     coverage_note = f"  ({n_nodata} nodata px, {100*n_nodata/(target_h*target_w):.1f}%)" if n_nodata else ""
     print(f"Saved {out_path}  shape={stack.shape}  date={item.datetime.date()}  "
-          f"cloud={item.properties.get('eo:cloud_cover'):.1f}%{coverage_note}")
+          f"cloud={item.properties.get('eo:cloud_cover'):.1f}%{coverage_note}", flush=True)
 
 
 def download_worldcover(bbox, worldcover_tile, out_path):
