@@ -24,7 +24,9 @@ const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   "http://127.0.0.1:3000"
-).replace(/\/$/, "");
+)
+  .trim()
+  .replace(/\/$/, "");
 
 const TABS = [
   { key: "land-cover", label: "Land Cover", needsChangePair: false },
