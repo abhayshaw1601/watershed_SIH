@@ -976,3 +976,55 @@ Empirical evaluation conducted across 3 independent validation pillars:
 - Formal architectural adapter seam defined for ISRO Bhuvan (WMS/WFS raster & vector tiles), Bhoonidhi (STAC optical catalog), and SRISHTI-DRISHTI (REST/EXIF mobile observation uploads).
 - Transparent institutional positioning: explicitly documents that the prototype operates on open reference data (Sentinel-2, Copernicus DEM, OSM) while remaining plug-ready for official departmental API credentials once granted.
 - Next.js Web GIS suite expanded to **8 tabs** with the addition of `ValidationTab.tsx` ("Scientific Validation").
+
+---
+
+## 14. Plain-Language Accessibility Redesign, Educational User Manual & Custom Radius Hierarchy (Sep 2026)
+
+### 14.1. Core Design Principle: Eliminating Cognitive Overload for Field Officers
+While the underlying geospatial algorithms utilize cutting-edge deep learning (Model 1 U-Net, Copernicus GLO-30 DEM D8 hydrologic routing, and multi-sensor evidence fusion), government evaluators, district collectors, and field extension workers require plain-English, actionable diagnostics. All user-facing screens were refactored to reduce text density by 50–60% and eliminate dense academic jargon:
+- Replaced academic terms (`silvopasture`, `NDVI 5-year velocity`, `albedo`, `caliper diameter measurements`) with intuitive phrases (`crop and tree canopy`, `5-Year Growth Trend`, `tin roofs and dirt roads`, `sapling size`).
+- Replaced intimidating alert codes (`ALERT`, `RECOMMEND`, `INFO`, `VERIFIED`) with human-friendly labels (`Action Required`, `Recommendation`, `Observation`, `Field Verified`) paired with Phosphor SVG status icons.
+
+### 14.2. Tab-by-Tab Plain-Language Transformations
+1. **Field Investigation (`FieldTab.tsx`)**:
+   - Replaced complex station cards with 5 clear, focused inspection stations.
+   - Clarified missing-photo protocols: clearly displays "Why Verification is Needed", "What Ground Inspection Will Uncover", and "Action Note" when a field photo has not yet been uploaded.
+   - Streamlined verdict actions to 3 clear choices: "Confirm Match" (green), "Report Mismatch" (rose), and "Need More Info" (foreground).
+2. **Investigation & Interventions (`InterventionsTab.tsx`)**:
+   - Simplified diagnostic pillars into 3 straightforward categories: "Water Storage & Runoff", "Topsoil & Erosion", and "Tree Cover & Slopes".
+   - Rewrote all default structural recommendations (Check Dams, Farm Ponds, Contour Bunds) into actionable 1-sentence explanations of what the problem is and how the civil structure solves it.
+   - Standardized impact metrics (Hectares Treated, Water Captured, Farm Families Benefited, Standard Feasibility).
+3. **Watershed Health Score & Alerts (`HealthTab.tsx`)**:
+   - Upgraded main health gauge with immediate condition status badges: "Healthy Condition" (65–100), "Moderate Condition" (35–64), and "Needs Conservation" (<35).
+   - Rephrased 4 diagnostic sub-indices into plain English with visual progress bars and status pills:
+     - *Water Storage*: Evaluates open water extent and dam recharge capacity.
+     - *Plant & Tree Cover*: Measures protective canopy shielding topsoil from rain impact.
+     - *Soil Protection*: Quantifies bare ground at risk of erosion during monsoon rains.
+     - *5-Year Growth Trend*: Tracks multi-year vegetation recovery or stress.
+   - Simplified mathematical transparency accordion: explains the weighted average formula in plain terms: `Health Score = Total of (Land Area × Health Weight) ÷ Total Catchment Area`.
+4. **What-If Health Score Simulator (`SimulatorTab.tsx`)**:
+   - Redesigned into an intuitive policy testing interface allowing users to adjust 4 conservation levers (Stream Check Dams, Ridge Tree Planting, Slope Contour Bunds, Farm Rain Ponds).
+   - Instant live score recalculation displaying current score vs. projected score with net point gain badge.
+   - Plain-English environmental yield metrics: Water Recharged (Million Litres/yr), Topsoil Saved (Tonnes/yr), Well Water Table (meters rise), and Drought Defense (% resilience).
+   - Estimated project costs in Lakhs, beneficiary farming families, and groundwater payback periods.
+
+### 14.3. Interactive User Guide & Operational Manual (`web/src/app/how-to-use/page.tsx`)
+A dedicated 9-module educational manual was introduced at `/how-to-use` with interactive components:
+- **Module 00 — Quick Start Guide**: The 3-step decision loop (Search AOI -> Review Health & Alerts -> Test Conservation Works).
+- **Module 01 — Search & Radius Selection**: Interactive radius circle preview explaining ground coverage across 1.0 km (~314 ha), 2.0 km (~1,257 ha), and 5.0 km (~7,854 ha).
+- **Module 02 — Reading Land Cover (LULC)**: Interactive split-slider and guide to the 7 standard land cover classes.
+- **Module 03 — Tracking 5-Year Changes**: Distinguishing permanent structural changes from seasonal crop cycles.
+- **Module 04 — Health Score & Alert Cards**: Auditability, scoring bands, and explainable satellite evidence bullets.
+- **Module 05 — Interactive GIS & Catchment Map**: Elevation contours, flow routing, blue dashed metric radius circle, and layer opacity controls.
+- **Module 06 — What-If Policy Simulator**: Testing intervention combinations and projecting returns on investment before fund release.
+- **Module 07 — Field Photo Verification**: Uploading geo-tagged mobile photos, EXIF GPS parsing, and spatial evidence fusion.
+- **Module 08 — FAQ & Practical Tips**: Clarifications on cloud cover, offline operation, image revisit schedules, and data attribution.
+
+### 14.4. Dynamic Multi-Radius Spatial Hierarchy & Physical Ground Anchoring
+- **Custom Metric Radii**: Users can specify 1.0 km, 2.0 km, 3.0 km, 5.0 km, or 10.0 km radius on both place-name search and coordinate inputs.
+- **Physical Scale Anchoring**: Blue dashed Leaflet `<Circle>` drawn with physical metric radius in meters (`radius_km * 1000`) and Leaflet `<ScaleControl>` in kilometers/meters.
+- **Processing Time Caution**: Automatic notice alerting users that larger radii (>3.0 km) encompass over 10,000+ ha and require 35–50s to process multi-spectral 10m Sentinel-2 bands and 30m DEM tiles.
+- **Strict English Geocoding & Clean Initial Slate**: All Nominatim geocoding requests enforce English locale (`accept-language: en`), and the console opens with an impartial search prompt without hardcoding any specific demo village as default.
+- **Zero Emoji Compliance**: Full codebase compliance with Phosphor SVG icons across all interfaces.
+

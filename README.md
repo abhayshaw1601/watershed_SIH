@@ -65,18 +65,19 @@ Watershed Signal provides two complementary interfaces:
 
 1. **Modern Next.js Web GIS (`web/`)**: A production-grade web application featuring:
    - **Interactive GIS & Telemetry**: 3D WebGL satellite globe, Leaflet/MapLibre dynamic layers, and real-time Copernicus DEM catchment & stream overlays.
-   - **8-Tab Analytics Suite**:
-     - *Land Cover*: Split-slider comparing T1 vs. T2 classified rasters with per-class hectares.
-     - *Change*: Structural change tracking with seasonal-crop informational banner.
-     - *Health & Alerts*: 4 sub-index diagnostics (Water Storage, Canopy & Biomass, Soil Stability, 5-Yr Resilience), alert cards with quantifiable evidence bullets, and formula accordion.
-     - *Map*: Leaflet dynamic GIS map with Copernicus DEM catchment overlay.
-     - *Field Investigation*: End-to-end geo-photo workflow with EXIF GPS extraction, Section 15 Unified Observation Card, multi-signal evidence fusion, photo integrity tracking, and field log CSV export.
-     - *Investigation*: Dynamic catchment diagnostic with "What is Changed / Affected" pillars and "Recommended Engineering Changes" (all coordinates AOI-clamped via `clampToAoi()`).
-     - *What-If Simulator*: Dedicated standalone policy simulator with 4 intervention sliders, 1-click strategy presets, live ecological metric recalculation, land cover transition matrix, and ROI projection.
-     - *Scientific Validation*: Peer-grade empirical metrics tables, per-class IoU breakdown, 20-region change evaluation, and government data adapter design.
-    - **Live Satellite Analysis & Multi-Radius Spatial Hierarchy**: Enter any place name in India or custom coordinates; select from 0.5 km (Micro-Site ~100 ha), 1.0 km (Local Context ~400 ha), 2.0 km (Standard ~1,600 ha), 5.0 km (Regional Catchment ~10,000+ ha), or custom radius (0.2–25 km).
+   - **Interactive User Manual (`/how-to-use`)**: Dedicated 9-module illustrated guide for field officers, engineers, and evaluators explaining the 3-step decision loop, radius selection, LULC interpretation, alerts, and what-if simulation.
+   - **8-Tab Plain-Language Analytics Suite**:
+      - *Land Cover*: Split-slider comparing T1 vs. T2 classified rasters with per-class hectares.
+      - *Change*: Structural change tracking distinguishing permanent interventions from seasonal crop cycles.
+      - *Health & Alerts*: Health score gauge (0–100) with condition badges (Healthy, Moderate, Needs Conservation), 4 plain-language diagnostic cards (Water Storage, Tree Cover, Soil Protection, Growth Trend), and actionable satellite alerts.
+      - *Map*: Leaflet dynamic GIS map with Copernicus DEM catchment overlay and physical metric radius circle.
+      - *Field Investigation*: End-to-end geo-photo workflow with EXIF GPS extraction, Section 15 Unified Observation Card, missing-photo investigation protocols, and photo-gated verdicts.
+      - *Investigation*: Dynamic catchment diagnostic with 3 clear pillars (Water Storage, Soil Erosion, Tree Cover) and practical civil engineering recommendations (Check Dams, Farm Ponds, Contour Bunds).
+      - *What-If Simulator*: Interactive policy simulator with 4 conservation levers, 1-click strategy presets, instant health score recalculation, and community benefit estimates.
+      - *Scientific Validation*: Peer-grade empirical metrics tables, per-class IoU breakdown, 20-region change evaluation, and government data adapter design.
+    - **Live Satellite Analysis & Multi-Radius Spatial Hierarchy**: Enter any place name in India or custom coordinates; select from 1.0 km (~314 ha), 2.0 km (~1,257 ha), 3.0 km (~2,827 ha), 5.0 km (~7,854 ha), or 10.0 km (~31,416 ha).
     - **Physical Ground-Truth Anchoring**: Blue dashed Leaflet `<Circle>` in physical meters (`radius_km * 1000`), metric `<ScaleControl>`, real-time HUD telemetry, and dynamic catchment area calculation in hectares and km².
-    - **Processing Time Awareness**: Built-in notices alerting users that larger radii (> 2.0 km / 5.0 km) span larger physical areas (~10,000+ ha) and download expanded 10m Sentinel-2 bands and 30m DEM elevation grids (~30–50s vs ~10–20s).
+    - **Processing Time Awareness**: Built-in notices alerting users that larger radii (>3.0 km) span larger physical areas (~10,000+ ha) and require 35–50s to process multi-spectral 10m Sentinel-2 bands and 30m DEM elevation grids.
     - **Strict English Geocoding & Impartial Console**: OpenStreetMap Nominatim queries enforce English place names with zero Hindi/Devanagari text, with no hardcoded preselected demo location on load.
     - **Zero Emojis**: All icons are `@phosphor-icons/react` SVG — zero unicode emojis in the entire codebase.
 2. **Python Streamlit Dashboard (`project/app/`)**: A companion exploratory workbench (`streamlit_app.py`, `geo_photo.py`, `design.py`) for data science inspection, training checkpoint evaluation, and batch analysis.
@@ -85,7 +86,6 @@ Watershed Signal provides two complementary interfaces:
 
 ## Government Platform Integration Architecture
 
-Watershed Signal is engineered as an analytical decision-support layer sitting on top of existing government infrastructure rather than replacing it:
 
 ```text
 SRISHTI-DRISHTI / Bhuvan / Bhoonidhi (Future Authorized Access)

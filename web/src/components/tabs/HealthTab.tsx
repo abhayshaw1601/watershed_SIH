@@ -21,13 +21,13 @@ import {
 } from "@phosphor-icons/react";
 
 const CLASS_WEIGHTS: Record<string, { weight: number; name: string; desc: string }> = {
-  "0": { weight: 100, name: "Water / Structures", desc: "Highest ecological value; direct runoff capture" },
-  "1": { weight: 90, name: "Dense Forest / Trees", desc: "Deep root soil holding, canopy interception" },
-  "2": { weight: 70, name: "Agriculture / Cropland", desc: "Productive land use; moderate soil cover" },
-  "3": { weight: 55, name: "Sparse Veg / Grassland", desc: "Surface roughness; buffers gentle runoff" },
-  "6": { weight: 35, name: "Fallow / Bare Field", desc: "Vulnerable to sheet erosion during pre-monsoon" },
-  "5": { weight: 20, name: "Built-up / Settlement", desc: "Impervious surfaces; high peak runoff velocity" },
-  "4": { weight: 10, name: "Barren / Degraded Land", desc: "Severe gully risk, zero infiltration benefit" },
+  "0": { weight: 100, name: "Water Bodies & Dams", desc: "Stores runoff and directly recharges groundwater" },
+  "1": { weight: 90, name: "Forests & Trees", desc: "Deep roots anchor soil and absorb rainfall" },
+  "2": { weight: 70, name: "Farmland & Crops", desc: "Crops provide seasonal soil cover and food" },
+  "3": { weight: 55, name: "Grassland & Shrubs", desc: "Slows surface water flow and protects soil" },
+  "6": { weight: 35, name: "Bare & Fallow Fields", desc: "Uncovered soil vulnerable to rain wash" },
+  "5": { weight: 20, name: "Villages & Buildings", desc: "Hard surfaces where rainwater runs off without soaking in" },
+  "4": { weight: 10, name: "Barren & Degraded Land", desc: "Severely eroded ground with no water infiltration" },
 };
 
 export default function HealthTab({
@@ -80,41 +80,68 @@ export default function HealthTab({
         <div className="flex flex-col items-center justify-between rounded-2xl border border-foreground/10 bg-foreground/[0.02] p-6 text-center shadow-xs">
           <div>
             <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-              Watershed Health Index
+              Watershed Health Score
             </div>
             <div className="mt-4 flex justify-center">
               <HealthGauge score={meta.health_score} size={180} />
             </div>
-            <div className="mt-2 text-xs font-mono text-muted-foreground">
-              Scientific Multi-Factor Weighted Score
+            
+            <div className="mt-3 flex justify-center">
+              {meta.health_score >= 65 ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-sage/40 bg-sage/10 px-3 py-0.5 text-xs font-semibold text-sage">
+                  <ShieldCheck size={13} weight="bold" />
+                  <span>Healthy Condition</span>
+                </span>
+              ) : meta.health_score >= 35 ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber/40 bg-amber/10 px-3 py-0.5 text-xs font-semibold text-amber">
+                  <Lightbulb size={13} weight="bold" />
+                  <span>Moderate Condition</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-danger/40 bg-danger/10 px-3 py-0.5 text-xs font-semibold text-danger">
+                  <WarningOctagon size={13} weight="bold" />
+                  <span>Needs Conservation</span>
+                </span>
+              )}
             </div>
+
+            <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+              A single score from 0 (degraded) to 100 (abundant water &amp; trees).
+            </p>
           </div>
 
           <div className="mt-6 w-full border-t border-foreground/10 pt-4">
             <div className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-              NDVI 5-Year Velocity
+              5-Year Growth Trend
             </div>
             <div
-              className={`mt-1 font-display text-lg font-semibold ${
+              className={`mt-1 font-display text-base font-semibold ${
                 trendVal >= 0 ? "text-sage" : "text-danger"
               }`}
             >
               {trendVal >= 0 ? "+" : ""}
-              {trendVal.toFixed(4)} {trendVal >= 0 ? "· Greening Trend" : "· Vegetation Stress"}
+              {trendVal.toFixed(3)} · {trendVal >= 0 ? "Vegetation Growing" : "Vegetation Declining"}
             </div>
           </div>
         </div>
 
         {/* 4 Multi-Factor Diagnostic Cards */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {/* 1. Water Resilience */}
+          {/* 1. Water Storage */}
           <div className="rounded-2xl border border-foreground/10 bg-foreground/[0.02] p-5 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                 <Drop size={15} className="text-sky-400" weight="bold" />
-                <span>Water Storage Index</span>
+                <span>Water Storage</span>
               </span>
-              <span className="font-display text-lg font-bold text-sky-400">{waterScore}/100</span>
+              <div className="flex items-center gap-2">
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-mono font-semibold ${
+                  waterScore >= 60 ? "bg-sky-500/10 text-sky-400 border border-sky-500/30" : "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                }`}>
+                  {waterScore >= 60 ? "Adequate" : "Low Water"}
+                </span>
+                <span className="font-display text-lg font-bold text-sky-400">{waterScore}/100</span>
+              </div>
             </div>
             <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-foreground/10">
               <div
@@ -123,19 +150,26 @@ export default function HealthTab({
               />
             </div>
             <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
-              {waterHa.toFixed(1)} ha surface water ({waterPercent.toFixed(1)}% of catchment).{" "}
-              {waterScore >= 60 ? "Adequate retention along primary drainage channel." : "Severe pre-monsoon water deficit."}
+              {waterHa.toFixed(1)} ha water bodies ({waterPercent.toFixed(1)}% of area).{" "}
+              {waterScore >= 60 ? "Dams and ponds hold sufficient water to refill wells." : "Very little open water; check dams needed to catch monsoon runoff."}
             </p>
           </div>
 
-          {/* 2. Vegetation Canopy */}
+          {/* 2. Plant & Tree Cover */}
           <div className="rounded-2xl border border-foreground/10 bg-foreground/[0.02] p-5 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                 <Tree size={15} className="text-emerald-400" weight="bold" />
-                <span>Canopy & Biomass</span>
+                <span>Plant &amp; Tree Cover</span>
               </span>
-              <span className="font-display text-lg font-bold text-emerald-400">{canopyScore}/100</span>
+              <div className="flex items-center gap-2">
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-mono font-semibold ${
+                  canopyScore >= 65 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" : "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                }`}>
+                  {canopyScore >= 65 ? "Good Cover" : "Thin Trees"}
+                </span>
+                <span className="font-display text-lg font-bold text-emerald-400">{canopyScore}/100</span>
+              </div>
             </div>
             <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-foreground/10">
               <div
@@ -144,19 +178,26 @@ export default function HealthTab({
               />
             </div>
             <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
-              {(forestHa + agriHa).toFixed(1)} ha active green cover.{" "}
-              {canopyScore >= 65 ? "Stable agrarian and silvopasture canopy." : "Substantial barren/fallow exposure."}
+              {(forestHa + agriHa).toFixed(1)} ha trees and crops.{" "}
+              {canopyScore >= 65 ? "Healthy crop and tree canopy shields the soil and retains moisture." : "Low plant cover; bare land needs tree and grass planting."}
             </p>
           </div>
 
-          {/* 3. Soil Stability */}
+          {/* 3. Soil Protection */}
           <div className="rounded-2xl border border-foreground/10 bg-foreground/[0.02] p-5 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                 <ShieldCheck size={15} className="text-amber-400" weight="bold" />
-                <span>Soil Stability & Defense</span>
+                <span>Soil Protection</span>
               </span>
-              <span className="font-display text-lg font-bold text-amber-400">{soilScore}/100</span>
+              <div className="flex items-center gap-2">
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-mono font-semibold ${
+                  soilScore >= 70 ? "bg-amber-500/10 text-amber-400 border border-amber-500/30" : "bg-rose-500/10 text-rose-400 border border-rose-500/30"
+                }`}>
+                  {soilScore >= 70 ? "Stable Soil" : "Erosion Risk"}
+                </span>
+                <span className="font-display text-lg font-bold text-amber-400">{soilScore}/100</span>
+              </div>
             </div>
             <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-foreground/10">
               <div
@@ -165,19 +206,26 @@ export default function HealthTab({
               />
             </div>
             <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
-              {barrenHa.toFixed(1)} ha barren gully land ({((barrenHa / totalValidHa) * 100).toFixed(1)}%).{" "}
-              {soilScore >= 70 ? "Protected topsoil with low erosion risk." : "Vulnerable to sheet wash on upper ridges."}
+              {barrenHa.toFixed(1)} ha bare slopes ({((barrenHa / totalValidHa) * 100).toFixed(1)}%).{" "}
+              {soilScore >= 70 ? "Ground is well-protected with low risk of soil loss." : "Bare slopes risk losing topsoil; contour bunds recommended."}
             </p>
           </div>
 
-          {/* 4. Temporal Resilience */}
+          {/* 4. 5-Year Growth Trend */}
           <div className="rounded-2xl border border-foreground/10 bg-foreground/[0.02] p-5 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                 <TrendUp size={15} className="text-indigo-400" weight="bold" />
-                <span>5-Yr Climate Resilience</span>
+                <span>5-Year Growth Trend</span>
               </span>
-              <span className="font-display text-lg font-bold text-indigo-400">{trendScore}/100</span>
+              <div className="flex items-center gap-2">
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-mono font-semibold ${
+                  trendVal >= 0 ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/30" : "bg-rose-500/10 text-rose-400 border border-rose-500/30"
+                }`}>
+                  {trendVal >= 0 ? "Improving" : "Declining"}
+                </span>
+                <span className="font-display text-lg font-bold text-indigo-400">{trendScore}/100</span>
+              </div>
             </div>
             <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-foreground/10">
               <div
@@ -186,8 +234,8 @@ export default function HealthTab({
               />
             </div>
             <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
-              Based on Sentinel-2 multi-spectral NDVI change.{" "}
-              {trendVal >= 0 ? "Positive biomass accumulation over 5 years." : "Negative moisture trajectory."}
+              Multi-year satellite data.{" "}
+              {trendVal >= 0 ? "Vegetation and biomass have expanded over the last 5 years." : "Vegetation has declined in recent seasons."}
             </p>
           </div>
         </div>
@@ -198,14 +246,13 @@ export default function HealthTab({
         <div className="max-w-2xl">
           <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-sage font-bold">
             <Sliders size={16} weight="bold" />
-            <span>Dedicated Watershed Policy & Intervention Simulator Available</span>
+            <span>Interactive What-If Score Simulator</span>
           </div>
           <h3 className="mt-1 font-display text-lg font-bold text-foreground">
-            Want to simulate adding check dams, afforestation, or contour bunds?
+            Want to see how building dams or planting trees raises this score?
           </h3>
           <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-            Test policy decisions, calculate water recharge yields, and project health index deltas in real-time
-            in the dedicated <strong>What-If Simulator</strong> tab.
+            Test conservation structures in real-time, calculate water recharge gains, and see immediate score improvements in the <strong>What-If Simulator</strong>.
           </p>
         </div>
 
@@ -230,35 +277,31 @@ export default function HealthTab({
         <div className="rounded-2xl border border-foreground/10 bg-foreground/[0.02] p-6">
           <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
             <Target size={15} className="text-sage" weight="bold" />
-            <span>Engineering Advisory for Field Officers</span>
+            <span>Recommended Priority Actions</span>
           </div>
           <div className="mt-4 space-y-3">
             {lowestSubScore === waterScore && (
               <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4 text-xs leading-relaxed">
-                <strong className="text-sky-400 block mb-1">Priority: Water Storage Augmentation</strong>
-                Hydrological resilience is the limiting factor in this catchment. Recommend constructing masonry check
-                dams on secondary tributaries before the upcoming monsoon to capture runoff.
+                <strong className="text-sky-400 block mb-1 font-semibold">Priority: Build Water Storage</strong>
+                Water storage is the main bottleneck. Construct check dams and percolation tanks on streams to hold monsoon runoff and refill farm wells.
               </div>
             )}
             {lowestSubScore === soilScore && (
               <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs leading-relaxed">
-                <strong className="text-amber-400 block mb-1">Priority: Ridge Soil Stabilization</strong>
-                Upper ridge sectors show {barrenHa.toFixed(1)} ha of exposed barren soil. Recommend Continuous Contour
-                Trenches (CCT) and gully plugs to arrest progressive topsoil degradation.
+                <strong className="text-amber-400 block mb-1 font-semibold">Priority: Stop Slope Soil Erosion</strong>
+                {barrenHa.toFixed(1)} ha of upper hillside is bare and shedding soil. Construct contour trenches and earthen gully plugs to stop erosion.
               </div>
             )}
             {lowestSubScore === canopyScore && (
               <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs leading-relaxed">
-                <strong className="text-emerald-400 block mb-1">Priority: Agroforestry & Fallow Vegetating</strong>
-                Biomass canopy is suboptimal. Field workers should encourage farmers to plant horticultural boundary
-                species along cropland perimeters.
+                <strong className="text-emerald-400 block mb-1 font-semibold">Priority: Increase Tree &amp; Plant Cover</strong>
+                Plant cover is thin. Planting fruit and native trees along farm boundaries will hold soil moisture and improve the health score.
               </div>
             )}
             <div className="rounded-xl border border-foreground/10 bg-background p-4 text-xs text-muted-foreground leading-relaxed flex items-start gap-2.5">
               <Lightbulb size={16} className="text-amber-400 shrink-0 mt-0.5" weight="bold" />
               <div>
-                <strong>Decision Support Rule</strong>: Health score combines AI satellite land classification with
-                scientifically calibrated weights from the Indo-German Watershed Development Programme (IWDP).
+                <strong>How to read this score</strong>: Scores between 65–100 indicate healthy land, 35–64 indicates moderate stress, and below 35 requires immediate conservation works.
               </div>
             </div>
           </div>
@@ -268,7 +311,7 @@ export default function HealthTab({
         <div>
           <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
             <WarningOctagon size={15} className="text-rose-500" weight="bold" />
-            <span>Automated Satellite Change Alerts</span>
+            <span>Satellite Alerts &amp; Detected Changes</span>
           </div>
           {alerts.length > 0 ? (
             <div className="mt-4 space-y-3">
@@ -294,21 +337,21 @@ export default function HealthTab({
           <div className="flex items-center gap-2">
             <Calculator size={15} className="text-muted-foreground shrink-0" weight="bold" />
             <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-              Mathematical Formula & Weight Transparency
+              How is the Health Score Calculated?
             </span>
             <span className="rounded-full bg-foreground/10 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
-              Auditable Composite
+              Transparent Method
             </span>
           </div>
           <span className="font-mono text-xs text-muted-foreground flex items-center gap-1">
             {showFormula ? (
               <>
-                <span>Hide Formula</span>
+                <span>Hide Explanation</span>
                 <CaretUp size={12} weight="bold" />
               </>
             ) : (
               <>
-                <span>Inspect Math</span>
+                <span>Explain Math</span>
                 <CaretDown size={12} weight="bold" />
               </>
             )}
@@ -318,20 +361,20 @@ export default function HealthTab({
         {showFormula && (
           <div className="mt-5 border-t border-foreground/10 pt-5 text-xs text-muted-foreground space-y-4">
             <p className="leading-relaxed">
-              The <strong>Watershed Health Index (0–100)</strong> is computed as an area-weighted composite of every
-              10m pixel inside the watershed catchment:
+              Every piece of land is given a score from <strong>0 to 100</strong> based on its environmental value.
+              The overall score is simply the weighted average across the entire watershed:
             </p>
             <div className="rounded-xl border border-foreground/10 bg-background p-4 font-mono text-center text-foreground text-sm overflow-x-auto">
-              Health Score = Σ (Class Hectares × Class Weight) / Total Valid Hectares
+              Health Score = Sum of (Area of each Land Type × Health Weight) ÷ Total Area
             </div>
             <div className="overflow-x-auto rounded-xl border border-foreground/10 mt-3">
               <table className="w-full text-left font-mono text-xs">
                 <thead className="bg-foreground/[0.04] text-foreground border-b border-foreground/10">
                   <tr>
-                    <th className="p-2.5">Land Cover Class</th>
+                    <th className="p-2.5">Land Type</th>
                     <th className="p-2.5">Health Weight</th>
-                    <th className="p-2.5">Catchment Area</th>
-                    <th className="p-2.5">Ecological Rationale</th>
+                    <th className="p-2.5">Area</th>
+                    <th className="p-2.5">Why It Matters</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-foreground/10">
@@ -350,8 +393,7 @@ export default function HealthTab({
               </table>
             </div>
             <p className="text-[11px] text-muted-foreground italic">
-              * Note: Cloud shadow and unclassified gaps (Class 255) are strictly excluded from the denominator to
-              prevent false score dilution.
+              * Clouds and unclassified pixels are excluded to keep the score accurate.
             </p>
           </div>
         )}

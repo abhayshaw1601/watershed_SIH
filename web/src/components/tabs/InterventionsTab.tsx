@@ -110,58 +110,58 @@ function getDefaultInterventionsForSite(siteKey: string, siteMeta: SiteMeta): In
 
   // Context-specific problem/recommendation strings
   const struct1Problem = isUrban
-    ? "Urban surface impermeability causing flash flood risk and near-zero groundwater recharge."
-    : "High monsoon runoff velocity causing progressive stream bed scouring and severe soil loss.";
+    ? "Concrete surfaces prevent rainwater from soaking into the ground, raising flood risk."
+    : "Fast monsoon runoff washes away fertile soil along stream beds.";
   const struct1Rec = isUrban
-    ? "Construct detention/retention basin or porous check barrier to slow urban runoff and allow infiltration."
-    : "Construct a 2.5m masonry check dam with stone pitching apron and upstream silt trap.";
+    ? "Build a retention basin to capture runoff and recharge groundwater."
+    : "Build a 2.5m masonry check dam with a silt trap to slow runoff and hold water.";
 
   const struct2Problem = isForestDominated
-    ? "Forest edge degradation with no perennial water source for wildlife and understorey moisture retention."
+    ? "Forest edges lack water pools for wildlife and soil moisture."
     : isUrban
-    ? "Stormwater discharge with no on-site retention, overloading downstream drainage systems."
-    : "Dryland crop moisture stress during post-monsoon dry spells leading to yield drops.";
+    ? "Stormwater runs off without storage, overwhelming city drains."
+    : "Crops dry out quickly during dry spells between rains.";
   const struct2Rec = isForestDominated
-    ? "Construct wildlife water trough or small percolation pool at forest fringe low point."
+    ? "Dig a small watering pond at a low point along the forest edge."
     : isUrban
-    ? "Install stormwater harvesting cistern (30m x 20m x 3m) integrated with urban green infrastructure."
-    : "Excavate 30m x 30m x 3m farm percolation pond to store 2,700 m\u00b3 farm surface runoff.";
+    ? "Install a rainwater harvesting tank connected to green spaces."
+    : "Excavate a farm pond to store runoff for dry spells.";
 
   const struct3Problem = isUrban
-    ? "Rapid storm runoff and minimal soil cover causing surface water contamination and drainage overflow."
-    : "Local groundwater overdraft with water table falling below 14m depth.";
+    ? "Rapid storm runoff flows into drains instead of replenishing underground water."
+    : "Underground water levels are dropping from heavy tubewell pumping.";
   const struct3Rec = isUrban
-    ? "Install infiltration gallery or sub-surface percolation trench in available green corridor."
-    : "De-silt percolation basin to restore natural gravel infiltration bed; raise waste weir by 0.5m.";
+    ? "Install an underground infiltration trench along green corridors."
+    : "Remove silt from the percolation tank to help rainwater soak into the aquifer.";
 
   const struct4Problem = isForestDominated
-    ? "Forest edge slope instability with exposed mineral soil on steep ridges susceptible to landslide."
+    ? "Bare soil on steep hillsides is slipping during heavy rain."
     : isBarrenDominated
-    ? "Exposed barren ridge gradients experiencing accelerated sheet erosion and gully formation."
-    : "Pre-monsoon sheet wash carrying topsoil away from upper fallow gradients.";
+    ? "Rain is cutting erosion gullies into exposed slopes."
+    : "Rainwater washes away topsoil from bare upper fields.";
   const struct4Rec = isForestDominated
-    ? "Construct stone-lined drainage diversion bund to redirect slope flow into stable vegetated zones."
+    ? "Build stone contour bunds to guide runoff into vegetated ground."
     : isBarrenDominated
-    ? "Grade-stabilizer gully plugs and live barrier hedgerows of Agave/Dhaincha on exposed slopes."
-    : "Terrace 40 ha with continuous contour trenches (CCT) and vegetative vetiver grass strips.";
+    ? "Place stone gully plugs and plant grass hedgerows to halt erosion."
+    : "Dig contour trenches and plant grass strips along slopes to hold soil.";
 
   const struct2Type = isForestDominated || isUrban ? "Percolation Tank" : "Farm Pond";
   const struct2Name = isForestDominated
-    ? `${prefix} Forest Edge Water Pool`
+    ? `${prefix} Forest Water Pool`
     : isUrban
-    ? `${prefix} Stormwater Retention Basin`
-    : `${prefix} Farm Pond (Central Agrarian Sector)`;
+    ? `${prefix} Retention Basin`
+    : `${prefix} Farm Pond`;
 
   return [
     {
       id: `iv_${siteKey}_1`,
-      name: `${prefix} Check Dam #1 (Primary Stream Outlet)`,
+      name: `${prefix} Check Dam #1`,
       type: "Check Dam",
       condition: "operational",
       lat: p1.lat,
       lon: p1.lon,
       addedDate: "2024-03-15",
-      notes: "Check dam on primary drainage outlet to capture monsoon runoff and recharge aquifer.",
+      notes: "Slows stream water to recharge local groundwater.",
       rechargeEstM3: isUrban ? 18000 : 28500,
       soilRetainedTonnes: isUrban ? 30 : 85,
       priority: "High",
@@ -176,7 +176,7 @@ function getDefaultInterventionsForSite(siteKey: string, siteMeta: SiteMeta): In
       lat: p2.lat,
       lon: p2.lon,
       addedDate: "2024-04-10",
-      notes: "Water storage / retention structure for seasonal deficit mitigation.",
+      notes: "Stores surface runoff to protect against dry periods.",
       rechargeEstM3: isUrban ? 8000 : 12000,
       soilRetainedTonnes: isUrban ? 10 : 25,
       priority: "Medium",
@@ -185,15 +185,15 @@ function getDefaultInterventionsForSite(siteKey: string, siteMeta: SiteMeta): In
     },
     {
       id: `iv_${siteKey}_3`,
-      name: isUrban ? `${prefix} Urban Infiltration Gallery` : `${prefix} Groundwater Recharge Percolation Tank`,
+      name: isUrban ? `${prefix} Infiltration Trench` : `${prefix} Percolation Tank`,
       type: "Percolation Tank",
       condition: "silted",
       lat: p3.lat,
       lon: p3.lon,
       addedDate: "2024-05-02",
       notes: isUrban
-        ? "Sub-surface infiltration system to recharge depleted aquifer beneath impervious urban cover."
-        : "Community percolation tank to recharge depleted downstream agricultural borewells.",
+        ? "Sub-surface trench to recharge aquifers under paved areas."
+        : "Community tank to recharge groundwater for local wells.",
       rechargeEstM3: isUrban ? 25000 : 42000,
       soilRetainedTonnes: isUrban ? 40 : 120,
       priority: "High",
@@ -202,15 +202,13 @@ function getDefaultInterventionsForSite(siteKey: string, siteMeta: SiteMeta): In
     },
     {
       id: `iv_${siteKey}_4`,
-      name: `${prefix} ${isForestDominated ? "Slope Diversion Bund" : isBarrenDominated ? "Gully Plug (Erosion Control)" : "Contour Bund (Upper Slope Protection)"}`,
+      name: `${prefix} ${isForestDominated ? "Slope Bund" : isBarrenDominated ? "Gully Plug" : "Contour Bund"}`,
       type: isForestDominated ? "Sub-surface Dyke" : "Contour Bund",
       condition: "operational",
       lat: p4.lat,
       lon: p4.lon,
       addedDate: "2024-05-18",
-      notes: isForestDominated
-        ? "Slope drainage control structure protecting forest integrity from erosive overland flow."
-        : "Earthen bund arresting sheet erosion across exposed gradient.",
+      notes: "Prevents rainwater from eroding hillsides and bare soil.",
       rechargeEstM3: 15000,
       soilRetainedTonnes: isBarrenDominated ? 130 : 95,
       priority: "Medium",
@@ -595,14 +593,13 @@ export default function InterventionsTab({
           <div>
             <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
               <Target size={14} className="text-sage shrink-0" weight="bold" />
-              <span>Catchment Investigation &amp; Impact Analysis</span>
+              <span>Catchment Investigation &amp; Action Plan</span>
             </div>
             <h2 className="mt-2 font-display text-2xl sm:text-3xl text-foreground">
-              What is Changed &amp; Affected in {meta.display_name || site}
+              What Needs Attention in {meta.display_name || site}
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Multi-temporal satellite intelligence flags where natural hydrology has shifted, where soil erosion
-              is accelerating, and which physical structures must be built or restored to reverse degradation.
+              Satellite analysis highlights areas with rapid water runoff, bare soil erosion, and the civil structures recommended to restore them.
             </p>
           </div>
 
@@ -650,15 +647,13 @@ export default function InterventionsTab({
                       <Drop size={14} weight="bold" />
                       <span>Water Storage &amp; Runoff</span>
                     </span>
-                    <Badge tone="teal">{infiltrationPct < 25 ? "High Stress" : "Moderate Stress"}</Badge>
+                    <Badge tone="teal">{infiltrationPct < 25 ? "Needs Storage" : "Moderate Storage"}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    <strong>What is Affected:</strong> Unregulated monsoon sheet wash escapes along secondary drainage
-                    channels, recharging only ~{infiltrationPct}% of precipitation into shallow aquifers.
-                    {waterHa > 0 && <> Currently {waterHa.toFixed(1)} ha of surface water area detected.</>}
+                    Rainwater runs off too quickly, recharging only ~{infiltrationPct}% into underground aquifers. Check dams and farm ponds will help store water locally.
                   </p>
                   <div className="pt-2 border-t border-sky-500/15 font-mono text-[11px] text-sky-300">
-                    Target: {checkDamTarget} Check Dams &amp; {farmPondTarget} Farm Ponds in {meta.display_name || site}
+                    Target: {checkDamTarget} Check Dams &amp; {farmPondTarget} Farm Ponds
                   </div>
                 </div>
 
@@ -667,18 +662,15 @@ export default function InterventionsTab({
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-xs font-semibold text-amber-400 flex items-center gap-1.5">
                       <ShieldCheck size={14} weight="bold" />
-                      <span>Topsoil Erosion Corridors</span>
+                      <span>Topsoil &amp; Erosion</span>
                     </span>
-                    <Badge tone="amber">{barrenHa > 50 ? "Active Gullies" : "Low Risk"}</Badge>
+                    <Badge tone="amber">{barrenHa > 50 ? "Erosion Risk" : "Low Risk"}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    <strong>What is Affected:</strong> {barrenHa.toFixed(1)} ha of barren/degraded land
-                    ({((barrenHa / totalHa) * 100).toFixed(1)}% of catchment) experience estimated
-                    {sedimentRate !== "N/A" ? <> {sedimentRate} tonnes/ha/yr</> : " significant"} sediment
-                    loss during early torrential downpours before crop canopy forms.
+                    {barrenHa.toFixed(1)} ha of bare land is losing fertile topsoil during heavy downpours. Contour bunds and gully plugs will stop soil wash.
                   </p>
                   <div className="pt-2 border-t border-amber-500/15 font-mono text-[11px] text-amber-300">
-                    Target: {bundingTargetHa} ha Contour Bunding &amp; Gully Plugs in {meta.display_name || site}
+                    Target: {bundingTargetHa} ha Contour Bunds &amp; Gully Plugs
                   </div>
                 </div>
 
@@ -687,18 +679,15 @@ export default function InterventionsTab({
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
                       <Tree size={14} weight="bold" />
-                      <span>Biomass &amp; Canopy Trend</span>
+                      <span>Tree Cover &amp; Slopes</span>
                     </span>
-                    <Badge tone={trendVal >= 0 ? "sage" : "amber"}>{trendVal >= 0 ? "Positive Trend" : "Declining"}</Badge>
+                    <Badge tone={trendVal >= 0 ? "sage" : "amber"}>{trendVal >= 0 ? "Growing" : "Needs Trees"}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    <strong>What is Affected:</strong> Multi-year NDVI trajectory shows{" "}
-                    {trendVal >= 0 ? `positive recovery (${trendDisplay})` : `declining biomass (${trendDisplay})`},
-                    {" "}but {barrenHa.toFixed(1)} ha of exposed ridges remain without deep-rooted tree anchors.
-                    {forestHa > 0 && <> {forestHa.toFixed(1)} ha of forest/dense vegetation currently present.</>}
+                    {afforestedTargetHa} ha of exposed slopes need deep-rooted trees and contour trenches to anchor soil and improve moisture.
                   </p>
                   <div className="pt-2 border-t border-emerald-500/15 font-mono text-[11px] text-emerald-300">
-                    Target: {afforestedTargetHa} ha Ridge Afforestation in {meta.display_name || site}
+                    Target: Plant trees on {afforestedTargetHa} ha of Upper Slopes
                   </div>
                 </div>
               </>
@@ -709,26 +698,26 @@ export default function InterventionsTab({
         {/* Catchment Engineering KPI Bar */}
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-foreground/10 pt-6 font-mono text-xs">
           <div className="rounded-xl border border-foreground/10 bg-background p-3.5">
-            <span className="text-[10px] text-muted-foreground uppercase block">Recommended Works</span>
+            <span className="text-[10px] text-muted-foreground uppercase block">Planned Works</span>
             <span className="text-lg font-bold text-foreground font-display mt-0.5 block">{interventions.length}</span>
-            <span className="text-[10px] text-sage">{operationalCount} Operational</span>
+            <span className="text-[10px] text-sage">{operationalCount} Active</span>
           </div>
           <div className="rounded-xl border border-foreground/10 bg-background p-3.5">
-            <span className="text-[10px] text-muted-foreground uppercase block">Est. Annual Recharge</span>
+            <span className="text-[10px] text-muted-foreground uppercase block">Water Stored</span>
             <span className="text-lg font-bold text-sky-400 font-display mt-0.5 block">
               {(totalRechargeM3 / 1000).toFixed(1)}k m³
             </span>
-            <span className="text-[10px] text-muted-foreground">Aquifer replenishment</span>
+            <span className="text-[10px] text-muted-foreground">Added to groundwater</span>
           </div>
           <div className="rounded-xl border border-foreground/10 bg-background p-3.5">
-            <span className="text-[10px] text-muted-foreground uppercase block">Sediment Arrested</span>
+            <span className="text-[10px] text-muted-foreground uppercase block">Soil Saved</span>
             <span className="text-lg font-bold text-amber-400 font-display mt-0.5 block">{totalSoilSaved} t/yr</span>
-            <span className="text-[10px] text-muted-foreground">Silt wash prevented</span>
+            <span className="text-[10px] text-muted-foreground">Protected from erosion</span>
           </div>
           <div className="rounded-xl border border-foreground/10 bg-background p-3.5">
-            <span className="text-[10px] text-muted-foreground uppercase block">AOI Bounding Check</span>
+            <span className="text-[10px] text-muted-foreground uppercase block">Catchment Bounds</span>
             <span className="text-lg font-bold text-sage font-display mt-0.5 block">100% Inside</span>
-            <span className="text-[10px] text-muted-foreground">Guaranteed in active AOI</span>
+            <span className="text-[10px] text-muted-foreground">All structures verified</span>
           </div>
         </div>
 
@@ -946,28 +935,28 @@ export default function InterventionsTab({
                   <div>
                     <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                       <Compass size={14} className="text-sage" weight="bold" />
-                      <span>Recommended Civil Engineering Intervention</span>
+                      <span>Recommended Structure</span>
                     </span>
                     <h3 className="mt-1 font-display text-xl sm:text-2xl text-foreground">
                       {selectedIntervention.name}
                     </h3>
                   </div>
 
-                  <Badge tone="sage">100% Inside Active Catchment</Badge>
+                  <Badge tone="sage">Inside Catchment Area</Badge>
                 </div>
 
                 {/* Target Problem & Recommended Change Callouts */}
                 <div className="space-y-3">
                   <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs leading-relaxed">
                     <strong className="text-amber-400 block mb-1 font-mono uppercase text-[10px]">
-                      What is Affected (Target Vulnerability):
+                      Problem in this Area:
                     </strong>
                     <span className="text-foreground/90">{selectedIntervention.targetProblem}</span>
                   </div>
 
                   <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4 text-xs leading-relaxed">
                     <strong className="text-sky-400 block mb-1 font-mono uppercase text-[10px]">
-                      Recommended Engineering Change:
+                      Recommended Fix:
                     </strong>
                     <span className="text-foreground/90">{selectedIntervention.recommendedChange}</span>
                   </div>
@@ -976,13 +965,13 @@ export default function InterventionsTab({
                 {/* Live Operational Condition Selector */}
                 <div className="rounded-xl border border-foreground/10 bg-foreground/[0.015] p-4">
                   <span className="block font-mono text-xs uppercase tracking-wider text-muted-foreground mb-2">
-                    Structure Implementation &amp; Maintenance Status:
+                    Structure Status:
                   </span>
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      { key: "operational", label: "Operational", desc: "Built & functioning", tone: "sage" },
-                      { key: "silted", label: "Silt Trapped", desc: "Desilting scheduled", tone: "amber" },
-                      { key: "maintenance_needed", label: "Repairs Flagged", desc: "Spillway crack repair", tone: "danger" },
+                      { key: "operational", label: "Working", desc: "Built & functioning", tone: "sage" },
+                      { key: "silted", label: "Silted", desc: "Needs silt cleared", tone: "amber" },
+                      { key: "maintenance_needed", label: "Needs Repair", desc: "Damage or leak found", tone: "danger" },
                     ].map((cond) => {
                       const isCondActive = selectedIntervention.condition === cond.key;
                       return (
@@ -1013,19 +1002,19 @@ export default function InterventionsTab({
                     <span className="font-bold text-sky-400 text-sm mt-1 block">
                       +{selectedIntervention.rechargeEstM3.toLocaleString()} m³
                     </span>
-                    <span className="text-[10px] text-muted-foreground">Aquifer injection</span>
+                    <span className="text-[10px] text-muted-foreground">Added to groundwater</span>
                   </div>
 
                   <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
-                    <span className="text-muted-foreground block text-[10px] uppercase">Sediment Arrested</span>
+                    <span className="text-muted-foreground block text-[10px] uppercase">Soil Saved</span>
                     <span className="font-bold text-amber-400 text-sm mt-1 block">
                       {selectedIntervention.soilRetainedTonnes} t/year
                     </span>
-                    <span className="text-[10px] text-muted-foreground">Runoff silt capture</span>
+                    <span className="text-[10px] text-muted-foreground">Topsoil preserved</span>
                   </div>
 
                   <div className="rounded-xl border border-sage/20 bg-sage/5 p-3 col-span-2 sm:col-span-1">
-                    <span className="text-muted-foreground block text-[10px] uppercase">Velocity Buffer</span>
+                    <span className="text-muted-foreground block text-[10px] uppercase">Runoff Slowed</span>
                     <span className="font-bold text-sage text-sm mt-1 block">
                       ~{selectedIntervention.type === "Check Dam"
                         ? "48%"
@@ -1033,9 +1022,9 @@ export default function InterventionsTab({
                         ? "35%"
                         : selectedIntervention.type === "Contour Bund"
                         ? "62%"
-                        : "41%"} attenuation
+                        : "41%"} reduction
                     </span>
-                    <span className="text-[10px] text-muted-foreground">Downstream protection</span>
+                    <span className="text-[10px] text-muted-foreground">Flood risk lowered</span>
                   </div>
                 </div>
 
@@ -1046,7 +1035,7 @@ export default function InterventionsTab({
                   <div className="space-y-4">
                     <div className="flex items-center justify-between border-t border-foreground/10 pt-4">
                       <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                        Sentinel-2 Satellite Telemetry at Footprint
+                        Satellite Readings at this Spot
                       </span>
                       <button
                         onClick={handleVerifyLive}
@@ -1054,7 +1043,7 @@ export default function InterventionsTab({
                         className="rounded-lg border border-foreground/15 px-3 py-1 font-mono text-[11px] text-foreground hover:bg-foreground/5 transition-colors cursor-pointer flex items-center gap-1.5"
                       >
                         <ArrowsClockwise size={12} className={isVerifying ? "animate-spin" : ""} weight="bold" />
-                        <span>{isVerifying ? "Sampling 10m Pixel..." : "Verify Against Sentinel-2"}</span>
+                        <span>{isVerifying ? "Sampling 10m Pixel..." : "Verify Location"}</span>
                       </button>
                     </div>
 
@@ -1068,11 +1057,11 @@ export default function InterventionsTab({
                       {/* T1 Baseline Observation */}
                       <div className="rounded-xl border border-foreground/10 p-4">
                         <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-                          T1 Baseline ({meta.t1_date || "Baseline"})
+                          Baseline ({meta.t1_date || "Baseline"})
                         </span>
                         <div className="mt-2 text-sm font-semibold text-foreground">{evidence.classT1}</div>
                         <div className="mt-3 flex items-baseline justify-between border-t border-foreground/10 pt-2 font-mono text-xs">
-                          <span className="text-muted-foreground">NDVI Vegetation Index:</span>
+                          <span className="text-muted-foreground">Vegetation (NDVI):</span>
                           <span className="font-medium text-foreground">{evidence.ndviEstimateT1.toFixed(3)}</span>
                         </div>
                       </div>
@@ -1080,11 +1069,11 @@ export default function InterventionsTab({
                       {/* T2 Post-Monsoon / Current Condition */}
                       <div className="rounded-xl border border-foreground/10 p-4">
                         <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-                          T2 Recent ({meta.t2_date || "Recent"})
+                          Recent ({meta.t2_date || "Recent"})
                         </span>
                         <div className="mt-2 text-sm font-semibold text-foreground">{evidence.classT2}</div>
                         <div className="mt-3 flex items-baseline justify-between border-t border-foreground/10 pt-2 font-mono text-xs">
-                          <span className="text-muted-foreground">NDVI Vegetation Index:</span>
+                          <span className="text-muted-foreground">Vegetation (NDVI):</span>
                           <span className="font-medium text-sage">
                             {evidence.ndviEstimateT2.toFixed(3)} (+
                             {(evidence.ndviEstimateT2 - evidence.ndviEstimateT1).toFixed(3)})
@@ -1095,7 +1084,7 @@ export default function InterventionsTab({
                   </div>
                 ) : (
                   <div className="rounded-xl border border-amber/30 bg-amber/5 p-4 text-xs text-amber leading-relaxed">
-                    Recalibrating coordinate to active AOI bounding box.
+                    Recalibrating coordinates to watershed area.
                   </div>
                 )}
               </div>
@@ -1105,9 +1094,9 @@ export default function InterventionsTab({
                 <div className="flex items-center justify-between border-b border-foreground/10 pb-4">
                   <div>
                     <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                      Linked Field Surveyor Photos (&lt; {PHOTO_LINK_THRESHOLD_M}m)
+                      Field Photos Nearby (&lt; {PHOTO_LINK_THRESHOLD_M}m)
                     </span>
-                    <h4 className="mt-1 font-display text-lg">On-Ground Reality Cross-Check</h4>
+                    <h4 className="mt-1 font-display text-lg">On-Ground Cross-Check</h4>
                   </div>
                   <span className="font-mono text-xs text-muted-foreground">
                     {linkedPhotos.length} {linkedPhotos.length === 1 ? "match" : "matches"}
@@ -1117,8 +1106,8 @@ export default function InterventionsTab({
                 <div className="mt-4">
                   {linkedPhotos.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-foreground/20 p-6 text-center text-xs text-muted-foreground">
-                      No ground-truth photos recorded within {PHOTO_LINK_THRESHOLD_M}m of this structure yet.
-                      Audits logged in the <strong>Field Investigation</strong> tab automatically correlate here.
+                      No field photos recorded within {PHOTO_LINK_THRESHOLD_M}m yet.
+                      Photos uploaded in the <strong>Field Investigation</strong> tab will show up here automatically.
                     </div>
                   ) : (
                     <div className="divide-y divide-foreground/10 rounded-xl border border-foreground/10 overflow-hidden">
@@ -1142,7 +1131,7 @@ export default function InterventionsTab({
             </>
           ) : (
             <div className="rounded-2xl border border-foreground/10 p-12 text-center text-sm text-muted-foreground">
-              Select a recommended intervention from the left to inspect its impact analysis and engineering specifications.
+              Select a structure from the left to view its details and satellite readings.
             </div>
           )}
         </div>

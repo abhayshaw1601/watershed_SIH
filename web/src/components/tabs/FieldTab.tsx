@@ -176,84 +176,84 @@ export default function FieldTab({
     return [
       {
         id: "st_1",
-        name: "Station 1: Main Stream Check Dam (Outlet)",
-        sector: "Central Valley Stream",
+        name: "Station 1: Stream Check Dam",
+        sector: "Main Stream",
         category: "water",
         lat: Number((cLat - dLat * 0.4).toFixed(5)),
         lon: Number((cLon + dLon * 0.2).toFixed(5)),
-        expectedFeature: "Masonry Check Dam with Silt Trap",
-        defaultClass: "Water body / conservation structure",
+        expectedFeature: "Check Dam with Silt Trap",
+        defaultClass: "Water body / check dam",
         confidence: 94.8,
         hasPhoto: false,
-        photoTimestamp: "2024-03-12 11:24 IST",
-        groundTruth: "Pending: water body with active masonry spillway pool",
-        actionNote: "Verify: check dam intact; measure silt level and surface retention.",
-        whyNeeded: "Optical satellite reflectance cannot measure water depth beneath weed cover or detect masonry micro-cracks.",
-        whatWillUncover: "Staff gauge water level, silt accumulation percentage, and masonry downstream apron scour depth.",
+        photoTimestamp: "Recent Field Visit",
+        groundTruth: "Pending on-site check",
+        actionNote: "Check if the dam holds water and whether silt needs clearing.",
+        whyNeeded: "Satellites cannot measure water depth or detect wall cracks.",
+        whatWillUncover: "Actual water depth, silt buildup, and structural condition.",
       },
       {
         id: "st_2",
-        name: "Station 2: Northern Ridge Afforestation",
-        sector: "Upper Catchment Ridge",
+        name: "Station 2: Hillside Plantation",
+        sector: "Upper Ridge",
         category: "forest",
         lat: Number((cLat + dLat * 0.8).toFixed(5)),
         lon: Number((cLon + dLon * 0.6).toFixed(5)),
-        expectedFeature: "Continuous Contour Trenches (CCT) & Mixed Plantation",
-        defaultClass: "Dense vegetation / forest",
+        expectedFeature: "Tree Plantation & Trenches",
+        defaultClass: "Dense vegetation / trees",
         confidence: 91.2,
         hasPhoto: false,
-        groundTruth: "Pending physical tree count and survival assessment",
-        actionNote: "",
-        whyNeeded: "10m optical Sentinel-2 NDVI cannot differentiate between invasive scrub weed versus surviving native saplings under dry deciduous leafless conditions.",
-        whatWillUncover: "Sapling mortality count, collar diameter caliper measurements, and continuous contour trench siltation depth.",
+        groundTruth: "Pending tree survival check",
+        actionNote: "Count surviving saplings and check trench conditions.",
+        whyNeeded: "Satellites cannot tell young saplings apart from wild weeds.",
+        whatWillUncover: "Number of surviving trees and trench condition.",
       },
       {
         id: "st_3",
-        name: "Station 3: Mid-Slope Double-Cropping Basin",
-        sector: "Mid-Slope Agricultural Plain",
+        name: "Station 3: Farmland & Crops",
+        sector: "Agricultural Plain",
         category: "agriculture",
         lat: Number((cLat + dLat * 0.1).toFixed(5)),
         lon: Number((cLon - dLon * 0.5).toFixed(5)),
-        expectedFeature: "Irrigated Cropland (Rabi Pulses & Wheat)",
-        defaultClass: "Agriculture / cropland",
+        expectedFeature: "Irrigated Farmland",
+        defaultClass: "Farmland / crops",
         confidence: 93.6,
         hasPhoto: false,
-        groundTruth: "Pending well telemetry and crop vigor confirmation",
-        actionNote: "",
-        whyNeeded: "Surface reflectance shows green canopy, but satellite cannot identify if water source is sustainable groundwater recharge or over-extracted diesel tubewells.",
-        whatWillUncover: "Static groundwater table depth in observation wells, crop root-zone moisture, and irrigation method (drip vs flood).",
+        groundTruth: "Pending well water check",
+        actionNote: "Check well water levels and crop health.",
+        whyNeeded: "Green crops from space do not reveal whether wells are running dry.",
+        whatWillUncover: "Water level in local wells and soil moisture.",
       },
       {
         id: "st_4",
-        name: "Station 4: Western Gully Erosion Sector",
-        sector: "Upper Runoff Gully Head",
+        name: "Station 4: Gully Erosion Spot",
+        sector: "Upper Slope Gully",
         category: "gully",
         lat: Number((cLat - dLat * 0.7).toFixed(5)),
         lon: Number((cLon - dLon * 0.7).toFixed(5)),
-        expectedFeature: "Degraded Slope / Active Incipient Gully",
+        expectedFeature: "Soil Erosion Gully",
         defaultClass: "Barren / degraded land",
         confidence: 88.4,
         hasPhoto: false,
-        groundTruth: "Pending gully head migration survey",
-        actionNote: "",
-        whyNeeded: "Steep gully shadows and micro-relief under 3m width fall below the 10m Sentinel-2 pixel boundary, hiding active head-cut migration.",
-        whatWillUncover: "Gully head retreat rate in cm, sidewall tension cracking depth, and sediment deposition volume at gully mouth.",
+        groundTruth: "Pending erosion check",
+        actionNote: "Inspect if rainwater is widening the gully.",
+        whyNeeded: "Narrow gullies and soil cracks are too small for satellites to see clearly.",
+        whatWillUncover: "Gully depth and erosion speed.",
       },
       {
         id: "st_5",
-        name: "Station 5: Settlement Boundary Drainage Buffer",
-        sector: "Downstream Habitation Fringe",
+        name: "Station 5: Village Drainage Path",
+        sector: "Village Edge",
         category: "settlement",
         lat: Number((cLat - dLat * 0.8).toFixed(5)),
         lon: Number((cLon + dLon * 0.5).toFixed(5)),
-        expectedFeature: "Rural Settlement & Stormwater Pathway Buffer",
-        defaultClass: "Built-up / settlement",
+        expectedFeature: "Drainage Channel & Buffer",
+        defaultClass: "Built-up / village area",
         confidence: 89.7,
         hasPhoto: false,
-        groundTruth: "Pending drainage corridor inspection",
-        actionNote: "",
-        whyNeeded: "High-albedo corrugated roofs blend spectrally with compacted barren dirt roads along village fringes.",
-        whatWillUncover: "Direct civil inspection of stormwater passage obstructions, unlined wastewater seepage, and legal right-of-way boundaries.",
+        groundTruth: "Pending drainage check",
+        actionNote: "Check for blocked water drains and flood risk.",
+        whyNeeded: "Tin roofs and dirt roads look very similar on satellite images.",
+        whatWillUncover: "Blocked water paths and flood risks.",
       },
     ];
   }, [currentMeta]);
@@ -487,22 +487,22 @@ export default function FieldTab({
               Field Investigation Stations
             </h2>
             <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-              5 pre-configured ground stations. Click any to load its satellite prediction and field evidence dossier.
+              Compare satellite data with real on-ground evidence. Select any station below to inspect.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <div className="rounded-xl border border-sage/30 bg-sage/10 px-4 py-2 text-center">
               <span className="block font-display text-xl font-bold text-sage">{matchRate}%</span>
-              <span className="block font-mono text-[10px] uppercase text-muted-foreground">Field Match Rate</span>
+              <span className="block font-mono text-[10px] uppercase text-muted-foreground">Ground Match</span>
             </div>
             <div className="rounded-xl border border-foreground/10 bg-background px-4 py-2 text-center">
               <span className="block font-display text-xl font-bold text-foreground">{photoVerifiedCount}</span>
-              <span className="block font-mono text-[10px] uppercase text-muted-foreground">Photo-Verified</span>
+              <span className="block font-mono text-[10px] uppercase text-muted-foreground">With Photos</span>
             </div>
             <div className="rounded-xl border border-foreground/10 bg-background px-4 py-2 text-center">
               <span className="block font-display text-xl font-bold text-foreground">{log.length}</span>
-              <span className="block font-mono text-[10px] uppercase text-muted-foreground">Audits Logged</span>
+              <span className="block font-mono text-[10px] uppercase text-muted-foreground">Logged Audits</span>
             </div>
           </div>
         </div>
@@ -512,10 +512,10 @@ export default function FieldTab({
           <div className="flex items-center justify-between">
             <span className="font-mono text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
               <MapPin size={14} className="text-sage shrink-0" weight="bold" />
-              <span>Pre-Configured Ground Audit Stations ({currentMeta?.display_name || site})</span>
+              <span>Ground Stations ({currentMeta?.display_name || site})</span>
             </span>
             <span className="font-mono text-[11px] text-muted-foreground">
-              Click any station to view evidence dossier
+              Click any station to review
             </span>
           </div>
 
@@ -621,30 +621,30 @@ export default function FieldTab({
                 <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-4">
                   <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                     <Radio size={14} className="text-sky-400 shrink-0" weight="bold" />
-                    <span>Satellite AI Prediction</span>
+                    <span>Satellite AI Reading</span>
                   </span>
                   <div className="mt-2 text-base font-bold text-foreground">
                     {predictedClass || activeStation?.defaultClass}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Classified via trained PyTorch Model 1 (ResNet18 U-Net) at 10m spatial resolution.
+                    Detected from 10m Sentinel-2 satellite imagery.
                   </p>
                 </div>
 
                 <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-4">
                   <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                     <ClipboardText size={14} className="text-emerald-400 shrink-0" weight="bold" />
-                    <span>Ground Reality Status</span>
+                    <span>Ground Reality</span>
                   </span>
                   <div className="mt-2 text-base font-bold text-emerald-400">
                     {isCurrentPhotoAvailable
-                      ? activeStation?.groundTruth || "Verified via geotagged photo"
-                      : "Pending Field Photo Evidence"}
+                      ? activeStation?.groundTruth || "Verified via field photo"
+                      : "Pending Field Photo"}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {isCurrentPhotoAvailable
-                      ? activeStation?.actionNote || "Field surveyor recorded physical match."
-                      : "Ground reality cannot be certified solely from satellite reflectance."}
+                      ? activeStation?.actionNote || "Field surveyor confirmed physical condition."
+                      : "Requires a ground photo or field check to certify."}
                   </p>
                 </div>
               </div>
@@ -656,44 +656,44 @@ export default function FieldTab({
                     <div className="flex items-center gap-2">
                       <WarningCircle size={18} className="text-amber-400 shrink-0" weight="bold" />
                       <span className="font-mono text-xs font-semibold uppercase tracking-wider text-amber-400">
-                        Physical Ground Verification Protocol Required
+                        Ground Check Needed
                       </span>
                     </div>
                     <span className="font-mono text-[11px] text-muted-foreground">
-                      Optical Sensor Limitations Active
+                      On-site visit required
                     </span>
                   </div>
 
                   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                    {/* Why Verification is Needed Card */}
+                    {/* Why Needed */}
                     <div className="rounded-lg border border-amber-500/20 bg-background/80 p-4">
                       <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-amber-400 uppercase tracking-wide">
                         <Radio size={14} weight="bold" />
-                        <span>Why Verification is Needed</span>
+                        <span>Why We Need a Ground Check</span>
                       </div>
                       <p className="mt-2 text-xs text-foreground/90 leading-relaxed">
                         {activeStation?.whyNeeded ||
-                          "Satellite 10m pixels average canopy and soil reflectance together, which can obscure sub-canopy waterlogging, tree sapling mortality, or incipient gully cracks."}
+                          "Satellites view broad 10m areas and cannot see small cracks, drying wells, or sapling health directly."}
                       </p>
                     </div>
 
-                    {/* What On-Ground Inspection Will Uncover Card */}
+                    {/* What to check */}
                     <div className="rounded-lg border border-sky-500/20 bg-background/80 p-4">
                       <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-sky-400 uppercase tracking-wide">
                         <MagnifyingGlass size={14} weight="bold" />
-                        <span>What On-Ground Inspection Will Uncover</span>
+                        <span>What We Check on Site</span>
                       </div>
                       <p className="mt-2 text-xs text-foreground/90 leading-relaxed">
                         {activeStation?.whatWillUncover ||
-                          "Accurate physical measurements: staff gauge water depth, seedling survival percentage, soil penetrometer compaction, and civil structure integrity."}
+                          "Water depth, seedling survival, soil moisture, and physical structure health."}
                       </p>
                     </div>
                   </div>
 
-                  {/* 1-Click Action to Attach Photo or Simulate Field Camera */}
+                  {/* Actions */}
                   <div className="mt-4 pt-3 border-t border-amber-500/20 flex flex-wrap items-center justify-between gap-3">
                     <p className="text-xs text-muted-foreground">
-                      Are you a field surveyor on site? Capture or attach a field photo to certify this location.
+                      Have a photo from the field? Attach it here to verify this station.
                     </p>
                     <div className="flex items-center gap-2">
                       <button
@@ -709,7 +709,7 @@ export default function FieldTab({
                           className="flex items-center gap-1.5 rounded-lg bg-sky-500/15 border border-sky-500/30 px-3 py-1.5 text-xs font-semibold text-sky-400 hover:bg-sky-500/25 transition-colors cursor-pointer"
                         >
                           <Sparkle size={14} weight="bold" />
-                          <span>Simulate Surveyor Photo</span>
+                          <span>Sample Demo Photo</span>
                         </button>
                       )}
                     </div>
@@ -734,7 +734,7 @@ export default function FieldTab({
                     <div className="flex items-center gap-2">
                       <CheckCircle size={16} className="text-emerald-400" weight="bold" />
                       <span className="font-mono text-xs font-bold text-emerald-400 uppercase tracking-wide">
-                        Verified Photographic Field Evidence
+                        Verified Ground Photo
                       </span>
                     </div>
                     <span className="font-mono text-[11px] text-muted-foreground">
@@ -756,26 +756,26 @@ export default function FieldTab({
                         {activeStation?.expectedFeature}
                       </div>
                       <p className="text-muted-foreground leading-relaxed">
-                        {activeStation?.actionNote || "Field photograph confirms structural presence and status."}
+                        {activeStation?.actionNote || "Field photo confirms structure condition."}
                       </p>
                       <div className="font-mono text-[10px] text-emerald-400">
-                        GPS Match Verified · Ready for Official Verification Verdict
+                        GPS Match Verified · Ready for Official Verdict
                       </div>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Official Observation Assessment Card (PS-26015 Unified Report Layout) */}
+              {/* Site Summary & Satellite Reading */}
               <div className="mt-5 rounded-2xl border border-foreground/10 bg-background p-5 border-l-4 border-l-sage shadow-xs space-y-4">
                 {/* Header */}
                 <div className="flex flex-wrap items-start justify-between gap-2 border-b border-foreground/10 pb-3">
                   <div>
                     <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground block">
-                      Field Observation · Spatial Interpretation
+                      Site Summary &amp; Satellite Indicators
                     </span>
                     <div className="font-mono text-xs font-semibold text-foreground mt-0.5">
-                      GPS: {activeStation ? `${activeStation.lat.toFixed(5)}°N, ${activeStation.lon.toFixed(5)}°E` : `${coords?.lat.toFixed(5)}°N, ${coords?.lon.toFixed(5)}°E`} · Sensor Date: {currentMeta?.t2_date || "Recent Scene"}
+                      GPS: {activeStation ? `${activeStation.lat.toFixed(5)}°N, ${activeStation.lon.toFixed(5)}°E` : `${coords?.lat.toFixed(5)}°N, ${coords?.lon.toFixed(5)}°E`} · Scene: {currentMeta?.t2_date || "Recent"}
                     </div>
                   </div>
                   <span className="font-mono text-[10px] uppercase tracking-wider font-semibold text-sage border border-sage/40 rounded px-2 py-0.5 bg-sage/10">
@@ -783,33 +783,23 @@ export default function FieldTab({
                   </span>
                 </div>
 
-                {/* Watershed Context */}
+                {/* Watershed Location */}
                 <div className="border-b border-foreground/10 pb-3 text-xs">
                   <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground block">
-                    Watershed Context
+                    Catchment Location
                   </span>
                   <div className="font-display text-base font-bold text-foreground mt-0.5">
-                    DEM-Derived Watershed Boundary (Copernicus GLO-30, 30m)
+                    {currentMeta?.display_name || site}
                   </div>
                   <div className="text-muted-foreground mt-1">
-                    District: <span className="text-foreground font-medium">Jalna</span> · Block: <span className="text-foreground font-medium">Jalna</span> · State: <span className="text-foreground font-medium">Maharashtra</span> · Catchment: <span className="font-mono text-foreground font-medium">4,200.0 ha</span>
+                    Nearby Work: <span className="text-foreground font-medium">{activeStation?.expectedFeature || "Check Dam"}</span> · ~140m from point
                   </div>
                 </div>
 
-                {/* Associated Intervention */}
-                <div className="border-b border-foreground/10 pb-3 text-xs">
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground block">
-                    Associated Intervention (Within 500 m)
-                  </span>
-                  <div className="mt-1 text-foreground font-medium">
-                    {activeStation?.expectedFeature || "Masonry Check Dam 12"} <span className="text-muted-foreground font-normal">· 140 m from observation point</span>
-                  </div>
-                </div>
-
-                {/* Spatial Evidence Grid */}
+                {/* Satellite Evidence Grid */}
                 <div className="border-b border-foreground/10 pb-3">
                   <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground block mb-2">
-                    Spatial &amp; Satellite Evidence
+                    Satellite Indicators
                   </span>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                     <div className="rounded border border-foreground/10 bg-foreground/[0.02] p-2">
@@ -817,38 +807,32 @@ export default function FieldTab({
                       <span className="font-medium text-foreground">{predictedClass || activeStation?.defaultClass}</span>
                     </div>
                     <div className="rounded border border-foreground/10 bg-foreground/[0.02] p-2">
-                      <span className="font-mono text-[9px] uppercase text-muted-foreground block">NDVI (T2)</span>
-                      <span className="font-mono text-foreground font-medium">0.56 <span className="text-muted-foreground text-[10px]">(earlier: 0.42)</span></span>
+                      <span className="font-mono text-[9px] uppercase text-muted-foreground block">Vegetation (NDVI)</span>
+                      <span className="font-mono text-foreground font-medium">0.56 <span className="text-muted-foreground text-[10px]">(was 0.42)</span></span>
                     </div>
                     <div className="rounded border border-foreground/10 bg-foreground/[0.02] p-2">
-                      <span className="font-mono text-[9px] uppercase text-muted-foreground block">NDWI (Water)</span>
-                      <span className="font-mono text-foreground font-medium">0.31 <span className="text-muted-foreground text-[10px]">(earlier: 0.24)</span></span>
+                      <span className="font-mono text-[9px] uppercase text-muted-foreground block">Water Index</span>
+                      <span className="font-mono text-foreground font-medium">0.31 <span className="text-muted-foreground text-[10px]">(was 0.24)</span></span>
                     </div>
                     <div className="rounded border border-foreground/10 bg-foreground/[0.02] p-2">
                       <span className="font-mono text-[9px] uppercase text-muted-foreground block">Drainage</span>
-                      <span className="text-foreground font-medium">Connected to channel</span>
+                      <span className="text-foreground font-medium">Connected to stream</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Integrated Assessment Verdict */}
+                {/* Overall Verdict */}
                 <div className="border-b border-foreground/10 pb-3">
                   <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground block">
-                    Integrated Assessment Verdict
+                    Quick Assessment
                   </span>
                   <div className="font-display text-xl font-bold text-sage mt-1">
-                    Positive Evidence
+                    Positive Progress
                   </div>
-                  <div className="mt-2 text-xs">
-                    <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block mb-1">
-                      Analysis Findings:
-                    </span>
-                    <ul className="list-disc pl-4 space-y-1 text-foreground/85">
-                      <li>Vegetation cover increased significantly since earlier observation</li>
-                      <li>Water retention extent has expanded in the surrounding micro-catchment</li>
-                      <li>The site sits directly on an active topographic drainage channel</li>
-                    </ul>
-                  </div>
+                  <ul className="mt-2 list-disc pl-4 space-y-1 text-xs text-foreground/85">
+                    <li>Vegetation cover has improved noticeably compared to earlier baseline</li>
+                    <li>Good water retention observed along natural drainage lines</li>
+                  </ul>
                 </div>
 
                 {/* Recommended Action */}
@@ -857,7 +841,7 @@ export default function FieldTab({
                     Recommended Action
                   </span>
                   <p className="mt-1 text-foreground/90 leading-relaxed">
-                    Continue routine monitoring. Watershed conditions demonstrate positive structural progress. No emergency ground remediation required.
+                    Continue regular monitoring. The site is in stable condition with no urgent repairs needed.
                   </p>
                 </div>
               </div>
@@ -865,7 +849,7 @@ export default function FieldTab({
               {/* Action Buttons for Verdict */}
               <div className="mt-6 border-t border-foreground/10 pt-4">
                 <span className="block text-xs font-medium text-muted-foreground mb-3">
-                  Record Official Field Verification Verdict:
+                  Record Verification Verdict:
                 </span>
                 <div className="flex flex-wrap gap-3">
                   <button
@@ -876,10 +860,10 @@ export default function FieldTab({
                         ? "bg-sage/15 text-sage border-sage/30 hover:bg-sage/25 cursor-pointer"
                         : "bg-foreground/5 text-muted-foreground/50 border-foreground/10 cursor-not-allowed opacity-60"
                     }`}
-                    title={!isCurrentPhotoAvailable ? "Attach field photo before certifying match" : undefined}
+                    title={!isCurrentPhotoAvailable ? "Attach field photo before confirming match" : undefined}
                   >
                     <CheckCircle size={15} weight="bold" />
-                    <span>Confirmed Match (AI Matches Ground)</span>
+                    <span>Confirm Match</span>
                   </button>
                   <button
                     onClick={() => recordVerdict("mismatch")}
@@ -891,27 +875,27 @@ export default function FieldTab({
                     }`}
                   >
                     <XCircle size={15} weight="bold" />
-                    <span>Flag Mismatch (Classifier Discrepancy)</span>
+                    <span>Report Mismatch</span>
                   </button>
                   <button
                     onClick={() => recordVerdict("inconclusive")}
                     className="flex items-center gap-2 rounded-xl bg-foreground/5 px-4 py-2.5 text-xs font-semibold text-foreground/80 border border-foreground/15 hover:bg-foreground/10 transition-colors cursor-pointer"
                   >
                     <Question size={15} weight="bold" />
-                    <span>Inconclusive (Requires On-Ground Survey)</span>
+                    <span>Need More Info</span>
                   </button>
                 </div>
 
                 {!isCurrentPhotoAvailable && (
                   <p className="mt-2 font-mono text-[11px] text-amber-400">
-                    Notice: Official &ldquo;Confirmed Match&rdquo; certification requires ground photograph evidence. You can record &ldquo;Inconclusive&rdquo; anytime.
+                    Attach a field photo to confirm match, or record field notes.
                   </p>
                 )}
 
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder="Field notes (e.g., structure integrity, water depth, soil moisture, vegetation species)…"
+                  placeholder="Field notes (e.g., water level, crop health, structure condition)..."
                   rows={2}
                   className="mt-4 w-full rounded-xl border border-foreground/15 bg-transparent p-3 text-xs outline-none focus:border-foreground/40 transition-colors"
                 />
@@ -924,10 +908,10 @@ export default function FieldTab({
             <div className="flex items-center justify-between mb-3">
               <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <Camera size={14} className="text-foreground shrink-0" weight="bold" />
-                <span>Upload Field Surveyor Geotagged Photo</span>
+                <span>Upload Field Photo</span>
               </span>
               <span className="font-mono text-[10px] text-muted-foreground">
-                Automatic Browser EXIF GPS Extraction
+                Reads GPS from photo
               </span>
             </div>
 
@@ -949,9 +933,9 @@ export default function FieldTab({
               }`}
             >
               <Camera size={32} className="text-muted-foreground mb-1" weight="bold" />
-              <p className="text-xs font-medium text-foreground">Drop a geotagged smartphone photo here, or browse</p>
+              <p className="text-xs font-medium text-foreground">Drop a phone photo here, or click to browse</p>
               <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-                EXIF GPS is processed privately in your browser with zero server uploads
+                GPS coordinates are read directly inside your browser
               </p>
               <input
                 ref={fileInputRef}
@@ -966,18 +950,18 @@ export default function FieldTab({
             </div>
 
             {status === "reading" && (
-              <p className="mt-3 text-xs text-muted-foreground animate-pulse">Reading photo coordinates and matching satellite scene…</p>
+              <p className="mt-3 text-xs text-muted-foreground animate-pulse">Reading photo GPS and matching satellite location...</p>
             )}
             {status === "no-gps" && (
               <p className="mt-3 text-xs text-danger flex items-center gap-1.5">
                 <Warning size={14} className="text-danger shrink-0" weight="bold" />
-                <span>No GPS metadata found in this photo. Please click one of the 5 audit stations above or use an uncompressed camera JPEG.</span>
+                <span>No GPS found in this photo. Click an audit station above or use an uncompressed phone photo.</span>
               </p>
             )}
             {status === "outside-coverage" && coords && (
               <p className="mt-3 text-xs text-amber flex items-center gap-1.5">
                 <Warning size={14} className="text-amber shrink-0" weight="bold" />
-                <span>GPS found ({coords.lat.toFixed(4)}, {coords.lon.toFixed(4)}) but location falls outside current active watershed bounds.</span>
+                <span>Photo GPS ({coords.lat.toFixed(4)}, {coords.lon.toFixed(4)}) is outside this watershed area.</span>
               </p>
             )}
           </div>
@@ -989,7 +973,7 @@ export default function FieldTab({
             <div className="flex items-center justify-between border-b border-foreground/10 pb-3">
               <div>
                 <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground block">
-                  Audited Log
+                  Audit Log
                 </span>
                 <span className="text-xs text-foreground font-semibold">{log.length} Records</span>
               </div>
@@ -1004,7 +988,7 @@ export default function FieldTab({
               {log.length === 0 && (
                 <div className="py-8 text-center text-xs text-muted-foreground">
                   <FileText size={28} className="mx-auto mb-1.5 text-muted-foreground" weight="bold" />
-                  No audit entries yet. Click &ldquo;Inspect&rdquo; on any station to record your first field verdict.
+                  No audit entries yet. Click any station above to record your first field verdict.
                 </div>
               )}
               {log.map((entry) => {

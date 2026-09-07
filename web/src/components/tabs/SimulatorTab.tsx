@@ -193,39 +193,38 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
           <div>
             <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
               <Sliders size={14} className="text-sage shrink-0" weight="bold" />
-              <span>Hydrological Decision Support &amp; Policy Modeling</span>
+              <span>Interactive Decision Support &amp; Score Projections</span>
             </div>
             <h2 className="mt-2 font-display text-2xl sm:text-3xl text-foreground">
-              What-If Watershed Policy Simulator
+              What-If Health Score Simulator
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Simulate proposed physical watershed interventions to project catchment health score gains,
-              aquifer recharge volumes, and soil loss prevention before allocating public budgets.
+              Test how adding check dams, farm ponds, trees, or contour bunds will raise the catchment health score, refill groundwater, and stop soil erosion.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs text-muted-foreground mr-1">Strategy Presets:</span>
+            <span className="font-mono text-xs text-muted-foreground mr-1">Quick Plans:</span>
             <button
               onClick={() => applyPreset("max_recharge")}
               className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-mono text-sky-400 hover:bg-sky-500/20 transition-colors cursor-pointer flex items-center gap-1"
             >
               <Drop size={12} weight="bold" />
-              <span>Max Recharge</span>
+              <span>Max Water Storage</span>
             </button>
             <button
               onClick={() => applyPreset("erosion_defense")}
               className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-mono text-amber-400 hover:bg-amber-500/20 transition-colors cursor-pointer flex items-center gap-1"
             >
               <ShieldCheck size={12} weight="bold" />
-              <span>Erosion Defense</span>
+              <span>Stop Soil Erosion</span>
             </button>
             <button
               onClick={() => applyPreset("balanced")}
               className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-1.5 text-xs font-mono text-sage hover:bg-sage/20 transition-colors cursor-pointer flex items-center gap-1"
             >
               <Sparkle size={12} weight="bold" />
-              <span>Balanced IWDP</span>
+              <span>Balanced Plan</span>
             </button>
             {isSimulating && (
               <button
@@ -243,7 +242,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
         <div className="mt-6 flex flex-wrap items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <div className="rounded-2xl border border-foreground/10 bg-background p-4 text-center min-w-[7rem]">
-              <span className="font-mono text-[10px] text-muted-foreground uppercase block">Baseline Score</span>
+              <span className="font-mono text-[10px] text-muted-foreground uppercase block">Current Score</span>
               <span className="font-display text-2xl font-bold text-muted-foreground mt-1 block">
                 {baselineScore}
               </span>
@@ -252,7 +251,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
             <ArrowRight size={20} className="text-muted-foreground shrink-0" weight="bold" />
 
             <div className="rounded-2xl border border-sage/40 bg-sage/10 p-4 text-center min-w-[8rem] shadow-xs">
-              <span className="font-mono text-[10px] text-sage uppercase block font-semibold">Simulated Health</span>
+              <span className="font-mono text-[10px] text-sage uppercase block font-semibold">Simulated Score</span>
               <span className="font-display text-3xl font-bold text-sage mt-1 block">
                 {simulatedScore}
               </span>
@@ -268,24 +267,24 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
           {/* Quick Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
             <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-3 text-center">
-              <span className="text-[10px] text-muted-foreground block uppercase">Annual Recharge</span>
+              <span className="text-[10px] text-muted-foreground block uppercase">Water Recharged</span>
               <span className="font-bold text-sky-400 text-sm mt-0.5 block">+{waterRechargedML} ML</span>
-              <span className="text-[10px] text-muted-foreground">Million Litres</span>
+              <span className="text-[10px] text-muted-foreground">Million Litres/yr</span>
             </div>
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-center">
-              <span className="text-[10px] text-muted-foreground block uppercase">Soil Conserved</span>
+              <span className="text-[10px] text-muted-foreground block uppercase">Topsoil Saved</span>
               <span className="font-bold text-amber-400 text-sm mt-0.5 block">-{soilSavedTonnes} t/yr</span>
               <span className="text-[10px] text-muted-foreground">Tonnes/year</span>
             </div>
             <div className="rounded-xl border border-sage/20 bg-sage/5 p-3 text-center">
-              <span className="text-[10px] text-muted-foreground block uppercase">Water Table Rise</span>
+              <span className="text-[10px] text-muted-foreground block uppercase">Well Water Table</span>
               <span className="font-bold text-sage text-sm mt-0.5 block">+{waterTableRiseM}m</span>
-              <span className="text-[10px] text-muted-foreground">Aquifer depth</span>
+              <span className="text-[10px] text-muted-foreground">Estimated rise</span>
             </div>
             <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-3 text-center">
               <span className="text-[10px] text-muted-foreground block uppercase">Drought Buffer</span>
               <span className="font-bold text-purple-400 text-sm mt-0.5 block">+{droughtRiskReductionPct}%</span>
-              <span className="text-[10px] text-muted-foreground">Resilience</span>
+              <span className="text-[10px] text-muted-foreground">Resilience gain</span>
             </div>
           </div>
         </div>
@@ -299,11 +298,11 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
             <div className="flex items-center justify-between border-b border-foreground/10 pb-4">
               <div>
                 <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                  Intervention Levers
+                  Conservation Actions
                 </span>
-                <h3 className="font-display text-xl mt-1">Adjust Simulated Investments</h3>
+                <h3 className="font-display text-xl mt-1">Adjust Structures &amp; Plantings</h3>
               </div>
-              <span className="font-mono text-xs text-muted-foreground">Live 60 FPS Engine</span>
+              <span className="font-mono text-xs text-muted-foreground">Instant Calculation</span>
             </div>
 
             {/* Slider 1: Masonry Check Dams */}
@@ -311,9 +310,9 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               <div className="flex justify-between items-center text-xs font-medium">
                 <span className="flex items-center gap-1.5 text-foreground font-semibold">
                   <Drop size={14} className="text-sky-400" weight="bold" />
-                  <span>Masonry Check Dams along Drainage Corridor</span>
+                  <span>Check Dams on Streams</span>
                 </span>
-                <span className="font-mono text-sky-400 font-bold text-sm">+{checkDams} structures</span>
+                <span className="font-mono text-sky-400 font-bold text-sm">+{checkDams} dams</span>
               </div>
               <input
                 type="range"
@@ -325,8 +324,8 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
                 className="mt-3 w-full accent-sky-500 cursor-pointer"
               />
               <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
-                <span>Intercepts peak gully discharge</span>
-                <span>Max: {maxDams} dams for {radiusKm.toFixed(1)} km AOI</span>
+                <span>Traps stream runoff to refill nearby farm wells</span>
+                <span>Max: {maxDams} dams for {radiusKm.toFixed(1)} km area</span>
               </div>
             </div>
 
@@ -335,7 +334,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               <div className="flex justify-between items-center text-xs font-medium">
                 <span className="flex items-center gap-1.5 text-foreground font-semibold">
                   <Tree size={14} className="text-emerald-400" weight="bold" />
-                  <span>Upper Ridge Afforestation (Barren &rarr; Dense Forest)</span>
+                  <span>Tree Planting on Ridges (Afforestation)</span>
                 </span>
                 <span className="font-mono text-emerald-400 font-bold text-sm">+{ridgeAfforestation} ha</span>
               </div>
@@ -349,8 +348,8 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
                 className="mt-3 w-full accent-emerald-500 cursor-pointer"
               />
               <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
-                <span>Root-anchoring canopy interception</span>
-                <span>Max: {maxAfforestation} ha ({barrenHa > 0 ? "barren land" : "target zone"})</span>
+                <span>Plants native trees on bare hilltops to stop rain wash</span>
+                <span>Max: {maxAfforestation} ha ({barrenHa > 0 ? "available bare land" : "target hills"})</span>
               </div>
             </div>
 
@@ -359,7 +358,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               <div className="flex justify-between items-center text-xs font-medium">
                 <span className="flex items-center gap-1.5 text-foreground font-semibold">
                   <ShieldCheck size={14} className="text-amber-400" weight="bold" />
-                  <span>Continuous Contour Trenching (CCT) &amp; Fallow Terracing</span>
+                  <span>Contour Bunds &amp; Trenches on Slopes</span>
                 </span>
                 <span className="font-mono text-amber-400 font-bold text-sm">+{contourBunding} ha</span>
               </div>
@@ -373,8 +372,8 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
                 className="mt-3 w-full accent-amber-500 cursor-pointer"
               />
               <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
-                <span>Halts progressive sheet wash on slopes</span>
-                <span>Max: {maxBunding} ha ({fallowHa > 0 ? "fallow land" : "target area"})</span>
+                <span>Earthen ridges along slopes that hold water and stop erosion</span>
+                <span>Max: {maxBunding} ha ({fallowHa > 0 ? "available fallow land" : "target slopes"})</span>
               </div>
             </div>
 
@@ -383,7 +382,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               <div className="flex justify-between items-center text-xs font-medium">
                 <span className="flex items-center gap-1.5 text-foreground font-semibold">
                   <Plant size={14} className="text-sage" weight="bold" />
-                  <span>Individual Farm Percolation Ponds (Rabi Irrigation)</span>
+                  <span>Farm Rainwater Harvesting Ponds</span>
                 </span>
                 <span className="font-mono text-sage font-bold text-sm">+{farmPonds} ponds</span>
               </div>
@@ -397,8 +396,8 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
                 className="mt-3 w-full accent-sage cursor-pointer"
               />
               <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
-                <span>Micro-catchment rainfall harvesting</span>
-                <span>Max: {maxPonds} ponds for {radiusKm.toFixed(1)} km AOI</span>
+                <span>Dugout farm ponds storing rain for winter crop irrigation</span>
+                <span>Max: {maxPonds} ponds for {radiusKm.toFixed(1)} km area</span>
               </div>
             </div>
           </div>
@@ -410,16 +409,16 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
           <div className="rounded-2xl border border-foreground/10 bg-background p-6 shadow-xs">
             <div className="border-b border-foreground/10 pb-3">
               <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground block">
-                Simulated Catchment Shift
+                Simulated Landscape Shift
               </span>
-              <h4 className="font-display text-lg font-semibold mt-1">Land Cover Transitions</h4>
+              <h4 className="font-display text-lg font-semibold mt-1">How the Land Improves</h4>
             </div>
 
             <div className="mt-4 space-y-3 font-mono text-xs">
               <div className="flex items-center justify-between p-2.5 rounded-xl border border-foreground/5 bg-foreground/[0.02]">
                 <div className="flex items-center gap-2">
                   <Drop size={14} className="text-sky-400" weight="bold" />
-                  <span className="text-foreground">Water Cover</span>
+                  <span className="text-foreground">Water Bodies</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">{waterHa.toFixed(1)} ha</span>
@@ -431,7 +430,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               <div className="flex items-center justify-between p-2.5 rounded-xl border border-foreground/5 bg-foreground/[0.02]">
                 <div className="flex items-center gap-2">
                   <Tree size={14} className="text-emerald-400" weight="bold" />
-                  <span className="text-foreground">Dense Forest</span>
+                  <span className="text-foreground">Dense Forest &amp; Trees</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">{forestHa.toFixed(1)} ha</span>
@@ -443,7 +442,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               <div className="flex items-center justify-between p-2.5 rounded-xl border border-foreground/5 bg-foreground/[0.02]">
                 <div className="flex items-center gap-2">
                   <Plant size={14} className="text-amber-400" weight="bold" />
-                  <span className="text-foreground">Cropland</span>
+                  <span className="text-foreground">Productive Farmland</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">{agriHa.toFixed(1)} ha</span>
@@ -455,7 +454,7 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
               <div className="flex items-center justify-between p-2.5 rounded-xl border border-foreground/5 bg-foreground/[0.02]">
                 <div className="flex items-center gap-2">
                   <ShieldCheck size={14} className="text-rose-400" weight="bold" />
-                  <span className="text-foreground">Barren Gully</span>
+                  <span className="text-foreground">Barren &amp; Degraded Ground</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">{barrenHa.toFixed(1)} ha</span>
@@ -469,27 +468,27 @@ export default function SimulatorTab({ meta }: { meta: SiteMeta }) {
           {/* Implementation ROI & Community Benefit */}
           <div className="rounded-2xl border border-foreground/10 bg-background p-6 shadow-xs space-y-4">
             <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground block">
-              Budget &amp; Feasibility Projection
+              Budget &amp; Feasibility Estimate
             </span>
             <div className="space-y-3 font-mono text-xs">
               <div className="flex justify-between items-center border-b border-foreground/10 pb-2">
-                <span className="text-muted-foreground">Estimated Capital Outlay:</span>
+                <span className="text-muted-foreground">Estimated Project Cost:</span>
                 <strong className="text-foreground">
                   ~₹{(checkDams * 4.5 + farmPonds * 0.8 + ridgeAfforestation * 0.25 + contourBunding * 0.15).toFixed(1)} Lakhs
                 </strong>
               </div>
               <div className="flex justify-between items-center border-b border-foreground/10 pb-2">
-                <span className="text-muted-foreground">Beneficiary Farming Families:</span>
+                <span className="text-muted-foreground">Farm Families Benefited:</span>
                 <strong className="text-foreground">
                   ~{Math.round(checkDams * 38 + farmPonds * 12 + contourBunding * 1.5 + 45)} families
                 </strong>
               </div>
               <div className="flex justify-between items-center border-b border-foreground/10 pb-2">
-                <span className="text-muted-foreground">Payback in Groundwater Yield:</span>
-                <strong className="text-sage">1.4 Monsoon Seasons</strong>
+                <span className="text-muted-foreground">Groundwater Payback:</span>
+                <strong className="text-sage">1 to 2 Monsoons</strong>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">IWDP Technical Feasibility:</span>
+                <span className="text-muted-foreground">Technical Feasibility:</span>
                 <Badge tone="sage">High Feasibility</Badge>
               </div>
             </div>
