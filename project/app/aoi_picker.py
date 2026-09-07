@@ -51,7 +51,7 @@ except ImportError as e:
 LIVE_DIR = DATA_PROCESSED / "live"
 LIVE_DIR.mkdir(parents=True, exist_ok=True)
 
-HALF_KM = 4.5  # ~9km x 9km box, consistent with the rest of the project's AOIs
+HALF_KM = 1.0  # ~2km x 2km local context box; real hydrological boundaries are handled by watershed_delineation.py
 
 # The 3 sites Model 1 was actually trained on (see config.AOI_JOBS / AUX_AOIS).
 # Kadwanchi is the primary (has a real T1/T2 change-detection story); the
@@ -143,17 +143,17 @@ def run_pipeline(bbox, label: str, model, device, on_step=None):
     step("Generating alerts & recommendations...")
     alerts = generate_alerts(results["T2"]["class_map"], change_map, health, trend)
     return (results, change_map, health, trend, alerts,
-            watershed_mask, drainage_network, pour_point, watershed_caveat)
+            watershed_mask, drainage_network, pour_point, watershed_caveat, watershed_context)
 
 
-def _set_active_aoi(key, display_name, lat, lon, trained, model, device):
-    bbox = bbox_around(lat, lon)
+def _set_active_aoi(key, display_name, lat, lon, trained, model, device, half_km: float = 1.0):
+    bbox = bbox_around(lat, lon, half_km=half_km)
     with st.status(f"Analyzing {display_name}...", expanded=True) as status:
         def on_step(msg):
             status.update(label=msg)
 
         (results, change_map, health, trend, alerts,
-         watershed_mask, drainage_network, pour_point, watershed_caveat) = run_pipeline(
+         watershed_mask, drainage_network, pour_point, watershed_caveat, watershed_context) = run_pipeline(
             bbox, key, model, device, on_step=on_step
         )
         status.update(label=f"Done — {display_name} ready", state="complete", expanded=False)
@@ -165,11 +165,21 @@ def _set_active_aoi(key, display_name, lat, lon, trained, model, device):
         "change_map": change_map, "health": health, "trend": trend, "alerts": alerts,
         "watershed_mask": watershed_mask, "drainage_network": drainage_network,
         "pour_point": pour_point, "watershed_caveat": watershed_caveat,
+        "watershed_context": watershed_context,
     }
 
 
 def render_picker(model1, device):
-    st.html('<div class="wsig-eyebrow">Location</div>')
+    col_hdr, col_rad = st.columns([3, 2])
+    with col_hdr:
+        st.html('<div class="wsig-eyebrow">Location</div>')
+    with col_rad:
+        radius_choice = st.radio(
+            "Fetch window", ["Standard (2 km)", "Local (500 m)"],
+            horizontal=True, label_visibility="collapsed",
+            key="aoi_fetch_radius"
+        )
+    chosen_half_km = 0.25 if "500 m" in radius_choice else 1.0
 
     current = st.session_state.get("active_aoi")  # None until a location has been picked
     preset_cols = st.columns(len(PRESET_AOIS) + 2)
@@ -178,7 +188,7 @@ def render_picker(model1, device):
                       disabled=(current is not None and current["key"] == preset["key"])):
             try:
                 _set_active_aoi(preset["key"], preset["display_name"], preset["lat"], preset["lon"],
-                                 True, model1, device)
+                                 True, model1, device, half_km=chosen_half_km)
                 st.rerun()
             except Exception as e:
                 st.error(f"Couldn't load {preset['display_name']}: {e}")

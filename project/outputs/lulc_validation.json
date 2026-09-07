@@ -1,0 +1,56 @@
+{
+  "per_class": {
+    "Water body / conservation structure": {
+      "support": 1513,
+      "precision": 0.921,
+      "recall": 0.939,
+      "iou": 0.869,
+      "f1": 0.93
+    },
+    "Dense vegetation / forest": {
+      "support": 4215,
+      "precision": 0.912,
+      "recall": 0.913,
+      "iou": 0.84,
+      "f1": 0.913
+    },
+    "Agriculture / cropland": {
+      "support": 9490,
+      "precision": 0.886,
+      "recall": 0.887,
+      "iou": 0.796,
+      "f1": 0.887
+    },
+    "Sparse vegetation / grassland": {
+      "support": 3640,
+      "precision": 0.713,
+      "recall": 0.728,
+      "iou": 0.563,
+      "f1": 0.72
+    },
+    "Barren / degraded land": {
+      "support": 1540,
+      "precision": 0.638,
+      "recall": 0.597,
+      "iou": 0.446,
+      "f1": 0.617
+    },
+    "Built-up / settlement": {
+      "support": 1117,
+      "precision": 0.685,
+      "recall": 0.698,
+      "iou": 0.529,
+      "f1": 0.692
+    },
+    "Fallow / bare agricultural land": {
+      "support": 620,
+      "precision": 0.421,
+      "recall": 0.387,
+      "iou": 0.253,
+      "f1": 0.403
+    }
+  },
+  "pixel_accuracy": 0.8258,
+  "mean_iou": 0.6137,
+  "classes_absent_from_val_set": []
+}

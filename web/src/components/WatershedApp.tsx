@@ -12,6 +12,7 @@ import HealthTab from "@/components/tabs/HealthTab";
 import FieldTab from "@/components/tabs/FieldTab";
 import InterventionsTab from "@/components/tabs/InterventionsTab";
 import SimulatorTab from "@/components/tabs/SimulatorTab";
+import ValidationTab from "@/components/tabs/ValidationTab";
 import LocationPicker, { type CustomLocation } from "@/components/LocationPicker";
 
 const MapTab = dynamic(() => import("@/components/tabs/MapTab"), {
@@ -26,6 +27,7 @@ const TABS = [
   { key: "map", label: "Map", needsChangePair: false },
   { key: "field", label: "Field Investigation", needsChangePair: false },
   { key: "investigation", label: "Investigation", needsChangePair: false },
+  { key: "validation", label: "Scientific Validation", needsChangePair: false },
   { key: "simulator", label: "What-If Simulator", needsChangePair: false },
 ] as const;
 
@@ -425,6 +427,7 @@ export default function WatershedApp() {
             {tab === "map" && <MapTab site={siteKey} meta={meta} />}
             {tab === "field" && <FieldTab site={siteKey} meta={meta} />}
             {tab === "investigation" && <InterventionsTab site={siteKey} meta={meta} />}
+            {tab === "validation" && <ValidationTab />}
             {tab === "simulator" && <SimulatorTab meta={meta} />}
           </>
         )}

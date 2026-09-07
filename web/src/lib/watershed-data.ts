@@ -21,6 +21,7 @@ export type Alert = {
   rule: string;
   message: string;
   area_ha: number | null;
+  evidence?: string[];
 };
 
 export type SiteMeta = {
@@ -39,6 +40,13 @@ export type SiteMeta = {
   change_summary?: Record<string, ChangeSummaryEntry>;
   ndvi_trend?: number;
   alerts?: Alert[];
+  watershed_caveat?: string;
+  watershed_meta?: {
+    watershed_id?: string;
+    watershed_name?: string;
+    admin?: { state?: string; district?: string; block?: string };
+    area_ha?: number;
+  };
 };
 
 export type SiteIndexEntry = {

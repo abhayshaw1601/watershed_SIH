@@ -76,28 +76,44 @@ def generate_alerts(class_map_t2: np.ndarray, change_map: np.ndarray,
         verified = known_project_mask if known_project_mask is not None else np.zeros_like(construction_mask)
         unverified = construction_mask & ~verified
         if unverified.any():
+            unv_ha = area_ha(unverified)
             alerts.append({
                 "severity": "ALERT",
                 "rule": "new_construction",
                 "message": "Possible unauthorized construction detected — recommend field verification.",
-                "area_ha": area_ha(unverified),
+                "area_ha": unv_ha,
+                "evidence": [
+                    f"Construction-type surface change detected over {unv_ha} ha",
+                    "Change occurs outside registered watershed project boundaries",
+                    "Spectral response indicates fresh concrete, compaction, or ground excavation",
+                ],
             })
         if (construction_mask & verified).any():
+            ver_ha = area_ha(construction_mask & verified)
             alerts.append({
                 "severity": "INFO",
                 "rule": "new_construction_verified",
                 "message": "New construction within a known project boundary — logged, no action needed.",
-                "area_ha": area_ha(construction_mask & verified),
+                "area_ha": ver_ha,
+                "evidence": [
+                    f"Construction activity observed over {ver_ha} ha",
+                    "Coincides with recorded intervention or development project boundary",
+                ],
             })
 
     degradation_mask = change_map == 3
     if degradation_mask.any() and ndvi_trend_value < -0.02:
+        deg_ha = area_ha(degradation_mask)
         alerts.append({
             "severity": "RECOMMEND",
             "rule": "degradation_intervention",
-            "message": "Vegetation/water loss with declining NDVI trend — soil/water conservation "
-                       "structure recommended in this zone.",
-            "area_ha": area_ha(degradation_mask),
+            "message": "Vegetation or water loss with declining NDVI trend — soil and water conservation structure recommended.",
+            "area_ha": deg_ha,
+            "evidence": [
+                f"Degraded land area covers {deg_ha} ha across the watershed",
+                f"Vegetation index trend is negative ({ndvi_trend_value:.3f}) over the observation period",
+                "Indicates soil moisture depletion or loss of vegetative cover",
+            ],
         })
 
     new_water_mask = change_map == 1
@@ -105,19 +121,29 @@ def generate_alerts(class_map_t2: np.ndarray, change_map: np.ndarray,
         matched = known_project_mask if known_project_mask is not None else np.zeros_like(new_water_mask)
         confirmed = new_water_mask & matched
         if confirmed.any():
+            conf_ha = area_ha(confirmed)
             alerts.append({
                 "severity": "VERIFIED",
                 "rule": "new_structure_confirmed",
-                "message": "New conservation structure confirmed within a known project — update project records.",
-                "area_ha": area_ha(confirmed),
+                "message": "New conservation structure confirmed within a known project boundary.",
+                "area_ha": conf_ha,
+                "evidence": [
+                    f"New surface water retention detected over {conf_ha} ha",
+                    "Matches location of registered water harvesting asset",
+                ],
             })
         unmatched = new_water_mask & ~matched
         if unmatched.any():
+            unm_ha = area_ha(unmatched)
             alerts.append({
                 "severity": "INFO",
                 "rule": "new_water_unverified",
-                "message": "New water body detected outside known project boundaries — worth a field check.",
-                "area_ha": area_ha(unmatched),
+                "message": "New water body detected outside known project boundaries — field verification recommended.",
+                "area_ha": unm_ha,
+                "evidence": [
+                    f"New water retention detected over {unm_ha} ha",
+                    "Not recorded in official intervention registry",
+                ],
             })
 
     history = list(health_history or []) + [health_score]
@@ -135,9 +161,25 @@ def generate_alerts(class_map_t2: np.ndarray, change_map: np.ndarray,
         alerts.append({
             "severity": "RECOMMEND",
             "rule": "priority_intervention",
-            "message": f"Watershed health persistently low for the last {streak} periods "
-                       f"(current score={health_score:.1f}/100) — priority intervention recommended.",
+            "message": f"Watershed health persistently low for the last {streak} periods (current score={health_score:.1f}/100) — priority intervention recommended.",
             "area_ha": None,
+            "evidence": [
+                f"Current catchment condition score is {health_score:.1f}/100",
+                f"Health score has remained below the critical threshold (40) for {streak} consecutive periods",
+            ],
+        })
+
+    if len(history) >= 2 and (history[-2] - history[-1]) >= 10:
+        drop = history[-2] - history[-1]
+        alerts.append({
+            "severity": "ALERT",
+            "rule": "health_declining",
+            "message": f"Sharp decline in watershed health ({history[-2]:.1f} -> {history[-1]:.1f}, -{drop:.1f} pts) — inspect cause.",
+            "area_ha": None,
+            "evidence": [
+                f"Health score dropped by {drop:.1f} points since previous assessment",
+                "Reflects widespread loss of moisture or biomass in the catchment",
+            ],
         })
 
     if not alerts:

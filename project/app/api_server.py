@@ -267,7 +267,7 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 print(f"--> [Pipeline] Querying live Sentinel-2 STAC imagery & running PyTorch Model 1 U-Net on {device}...", flush=True)
 
                 (results, change_map, health, trend, alerts,
-                 watershed_mask, drainage_network, pour_point, watershed_caveat) = run_pipeline(
+                 watershed_mask, drainage_network, pour_point, watershed_caveat, watershed_context) = run_pipeline(
                     bbox, "custom_live", model, device,
                     on_step=lambda m: print(f"    --> {m}", flush=True)
                 )
@@ -398,6 +398,12 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     "ndvi_trend": round(float(trend), 4),
                     "alerts": alerts,
                     "watershed_caveat": watershed_caveat,
+                    "watershed_meta": {
+                        "watershed_id": watershed_context.get("watershed_id") if isinstance(watershed_context, dict) else None,
+                        "watershed_name": watershed_context.get("watershed_name") if isinstance(watershed_context, dict) else "DEM-Derived Watershed Boundary",
+                        "admin": watershed_context.get("admin") if isinstance(watershed_context, dict) else {},
+                        "area_ha": watershed_context.get("area_ha") if isinstance(watershed_context, dict) else 0.0,
+                    } if watershed_context else None,
                 }
 
                 with open(out_dir / "meta.json", "w", encoding="utf-8") as f:

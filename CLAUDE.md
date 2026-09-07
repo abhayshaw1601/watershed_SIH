@@ -122,3 +122,15 @@ together when reporting status.
     the equivalent English civil engineering term: "drainage channel", "check dam",
     "stream outlet", etc. The one exception is "Contour Bund" — accepted as an
     international IWDP/FAO term — which may remain.
+
+15. **Scientific validation consistency.** Always cite the empirically evaluated metrics:
+    - Model 1 LULC: 82.6% pixel accuracy, 61.4% mean IoU (`outputs/lulc_validation.json`)
+    - Change Detection: 0.897 precision, 0.925 recall, 0.911 F1 score, 0.837 IoU (`outputs/change_validation.json`)
+    - Field Photo Agreement: 86.7% match rate across 15 ground-truth observations (`data/field_validation_log.csv`)
+    Never fabricate synthetic metrics or blur baseline training metrics with final validation benchmarks.
+
+16. **Government platform positioning & DEM boundary naming.** Always label the delineated
+    catchment boundary strictly as `"DEM-Derived Watershed Boundary (Copernicus GLO-30, 30m)"`.
+    Never claim "Official Watershed Boundary" unless authorized government vector layers are loaded.
+    Position the system as an analytical decision-support layer sitting on top of SRISHTI-DRISHTI,
+    Bhuvan, and Bhoonidhi using the adapter contracts defined in `data_adapter_design.md`.

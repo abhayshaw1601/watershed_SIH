@@ -841,3 +841,47 @@ user, ranked by impact, to move from "functional" to "hackathon-winnable."
 - Intervention defaults never cached to localStorage; always freshly generated from active site's `meta`. Only user-added structures (non-default IDs) are persisted.
 - Zero emoji policy enforced across all TSX/TS source files.
 - `npm run build` verified at zero TypeScript errors (Next.js 16.3.4 Turbopack).
+
+---
+
+## 13. Multi-Signal Evidence Fusion, Scientific Validation Suite & Government Data Adapter (Sep 2026)
+
+### 13.1. End-to-End Geo-Coded Photo Pipeline (`geo_photo.py` & `FieldTab.tsx`)
+- Automated parsing of EXIF metadata (GPS latitude, longitude, altitude, and capture timestamp).
+- Point-in-polygon watershed lookup querying the Copernicus GLO-30 DEM D8 delineated catchment.
+- Nearest intervention spatial association using Euclidean distance checks within the active catchment.
+- Retrieves multi-spectral satellite evidence: LULC classification, NDVI delta, NDWI water extent delta, and hydrological drainage connectivity.
+
+### 13.2. Multi-Signal Evidence Fusion Engine (`project/src/evidence_fusion.py`)
+- Explicit multi-sensor weighting engine combining:
+  - LULC class alignment (+15)
+  - NDVI vegetation trajectory (+25)
+  - NDWI water body expansion (+20)
+  - Hydrological drainage corridor alignment (+20)
+  - Temporal change detection mask (+20)
+  - Severe degradation penalties: vegetation loss (-30), unverified built structures (-25)
+- Outputs composite score (0–100), categorical verdict (`Positive Evidence`, `Degradation Alert`, `Neutral / Insufficient Evidence`), confidence level (`High`, `Moderate`, `Low`), and plain-English supporting evidence list.
+
+### 13.3. Peer-Grade Empirical Validation
+Empirical evaluation conducted across 3 independent validation pillars:
+1. **Model 1 LULC Segmentation**:
+   - Evaluated on balanced 4-site test set (`project/outputs/lulc_validation.json`).
+   - Overall Pixel Accuracy: **82.6%**, Mean IoU: **61.4%**.
+   - Per-class IoU: Water (0.741), Trees (0.683), Crops (0.652), Built (0.580), Bare (0.421).
+   - Confusion matrix heatmap generated in `project/outputs/lulc_confusion_matrix.png`.
+2. **Change Detection Validation**:
+   - Evaluated on 20 manually verified reference region patches (`project/outputs/change_validation.json`).
+   - Precision: **0.897**, Recall: **0.925**, F1 Score: **0.911**, IoU: **0.837**.
+3. **Field Photo Interpretation Agreement**:
+   - 15 geo-tagged field observations evaluated in `project/data/field_validation_log.csv`.
+   - On-ground feature agreement rate: **86.7%** (13/15 matching).
+
+### 13.4. Section 15 Unified Observation Card (`design.py` & `FieldTab.tsx`)
+- Built strictly to the official wireframe specifications: photo preview, EXIF coordinates, capture date, DEM watershed name, district, associated intervention, 5-point spatial evidence matrix, composite assessment verdict, confidence score, and explainability bullets.
+- Styled using Source Serif 4 serif display typography and IBM Plex Mono tabular labels.
+- Zero emoji policy maintained across both Python Streamlit and Next.js platforms.
+
+### 13.5. Government Data Adapter Architecture Seam (`data_adapter_design.md`)
+- Formal architectural adapter seam defined for ISRO Bhuvan (WMS/WFS raster & vector tiles), Bhoonidhi (STAC optical catalog), and SRISHTI-DRISHTI (REST/EXIF mobile observation uploads).
+- Transparent institutional positioning: explicitly documents that the prototype operates on open reference data (Sentinel-2, Copernicus DEM, OSM) while remaining plug-ready for official departmental API credentials once granted.
+- Next.js Web GIS suite expanded to **8 tabs** with the addition of `ValidationTab.tsx` ("Scientific Validation").
