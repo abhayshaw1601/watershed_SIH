@@ -27,8 +27,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "app"))
 
 import numpy as np
-import rasterio
-from rasterio.warp import transform_bounds
 from PIL import Image, ImageDraw
 
 import os
@@ -64,6 +62,7 @@ def get_model():
     if _cached_model is None:
         import torch
         from model1_unet import build_model
+        torch.set_num_threads(1)
         _cached_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"--> [Model] Loading Model 1 checkpoint onto {_cached_device}...")
         _cached_model = build_model().to(_cached_device)
