@@ -20,6 +20,12 @@ const MapTab = dynamic(() => import("@/components/tabs/MapTab"), {
   loading: () => <div className="aspect-square w-full animate-pulse rounded-2xl bg-foreground/5" />,
 });
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "http://127.0.0.1:3000"
+).replace(/\/$/, "");
+
 const TABS = [
   { key: "land-cover", label: "Land Cover", needsChangePair: false },
   { key: "change", label: "Change", needsChangePair: true },
@@ -77,7 +83,7 @@ export default function WatershedApp() {
     const startTime = Date.now();
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/pipeline/run", {
+      const res = await fetch(`${API_BASE_URL}/api/pipeline/run`, {
         method: "POST",
         signal: controller.signal,
         headers: { "Content-Type": "application/json" },

@@ -31,6 +31,7 @@ import rasterio
 from rasterio.warp import transform_bounds
 from PIL import Image, ImageDraw
 
+import os
 from config import (
     MODELS_DIR, CLASS_NAMES, CLASS_COLORS, CHANGE_CLASS_NAMES,
     NUM_CLASSES, NODATA_CLASS
@@ -39,7 +40,7 @@ import intervention_registry as reg
 from geo_photo import read_validation_log
 from cache_manager import cache
 
-PORT = 8000
+PORT = int(os.environ.get("PORT", 3000))
 MODEL1_PATH = MODELS_DIR / "model1_lulc_unet.pt"
 WEB_DEMO_DIR = PROJECT_ROOT.parent / "web" / "public" / "demo-data"
 
