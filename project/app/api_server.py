@@ -40,6 +40,7 @@ import intervention_registry as reg
 from geo_photo import read_validation_log
 from cache_manager import cache
 
+HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", 3000))
 MODEL1_PATH = MODELS_DIR / "model1_lulc_unet.pt"
 WEB_DEMO_DIR = PROJECT_ROOT.parent / "web" / "public" / "demo-data"
@@ -444,10 +445,10 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
 
 
 def run():
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), WatershedApiHandler)
+    server = ThreadingHTTPServer((HOST, PORT), WatershedApiHandler)
     server.daemon_threads = True
     print("=" * 60)
-    print(f"  Watershed Signal Python API running on http://127.0.0.1:{PORT}")
+    print(f"  Watershed Signal Python API running on http://{HOST}:{PORT}")
     print("  Endpoints: /api/health | /api/interventions | /api/pipeline/run")
     print("=" * 60)
     try:
