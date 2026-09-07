@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/cn";
 import Button from "@/components/ui/Button";
-import { MagnifyingGlass, Crosshair, ArrowUpRight } from "@phosphor-icons/react";
+import { MagnifyingGlass, Crosshair, ArrowUpRight, Warning } from "@phosphor-icons/react";
 
 export type CustomLocation = {
   name: string;
@@ -281,6 +281,28 @@ export default function LocationPicker({
                 </div>
               )}
             </div>
+
+            {/* Caution Notice about Processing Time for Larger Radii */}
+            <div
+              className={cn(
+                "flex items-start gap-2.5 rounded-xl border p-3 text-[11px] font-mono leading-relaxed transition-colors",
+                effectiveRadius > 2.0
+                  ? "border-amber/40 bg-amber/10 text-foreground"
+                  : "border-foreground/10 bg-foreground/[0.02] text-muted-foreground"
+              )}
+            >
+              <Warning
+                size={16}
+                className={cn("shrink-0 mt-0.5", effectiveRadius > 2.0 ? "text-amber" : "text-muted-foreground")}
+                weight="bold"
+              />
+              <div>
+                <strong className={effectiveRadius > 2.0 ? "text-amber font-semibold" : "text-foreground"}>
+                  Processing Time Notice:
+                </strong>{" "}
+                Bigger radius sizes (e.g. 5.0 km or custom &gt; 3.0 km) cover substantially larger spatial areas (~10,000+ ha) and require streaming expanded multi-spectral 10m Sentinel-2 bands and 30m DEM elevation tiles. Higher radius means higher processing time (~30–50s vs ~10–20s for smaller radii).
+              </div>
+            </div>
           </div>
         </form>
       ) : (
@@ -339,6 +361,28 @@ export default function LocationPicker({
                 placeholder="2.0"
                 className="mt-1 w-full rounded-xl border border-foreground/15 bg-background p-2.5 text-sm font-mono outline-none focus:border-foreground"
               />
+            </div>
+          </div>
+
+          {/* Coordinate Mode Radius Processing Time Notice */}
+          <div
+            className={cn(
+              "flex items-start gap-2.5 rounded-xl border p-3 text-[11px] font-mono leading-relaxed transition-colors",
+              parseFloat(coordRadius) > 2.0
+                ? "border-amber/40 bg-amber/10 text-foreground"
+                : "border-foreground/10 bg-foreground/[0.02] text-muted-foreground"
+            )}
+          >
+            <Warning
+              size={15}
+              className={cn("shrink-0 mt-0.5", parseFloat(coordRadius) > 2.0 ? "text-amber" : "text-muted-foreground")}
+              weight="bold"
+            />
+            <div>
+              <strong className={parseFloat(coordRadius) > 2.0 ? "text-amber font-semibold" : "text-foreground"}>
+                Processing Time Notice:
+              </strong>{" "}
+              Larger radius values expand the satellite download footprint and PyTorch tensor size, resulting in longer pipeline processing time (~30–50s).
             </div>
           </div>
 

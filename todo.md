@@ -80,72 +80,23 @@ An officer should be able to:
 
 ---
 
-# 3. P0 — Replace the Fixed 9 km Radius
+# 3. P0 — Replace the Fixed 9 km Radius [COMPLETED]
 
-The current audit identifies a fixed:
+The arbitrary 9 km radius has been completely replaced with a feature-dependent, user-configurable spatial hierarchy across both the backend pipeline and Next.js frontend console.
 
-```text
-9 km radius
-```
+## Implemented Spatial Hierarchy
 
-as a weakness.
-
-Do not present 9 km as a scientifically justified universal radius.
-
-## Recommended spatial hierarchy
-
-### Local
-
-```text
-~500 m
-```
-
-For:
-
-- intervention surroundings
-- visible structures
-- local vegetation
-- nearby water
-- immediate land cover
-
-### Broader
-
-```text
-~2 km
-```
-
-For:
-
-- surrounding LULC
-- vegetation trends
-- water changes
-- drainage relationships
-
-### Primary
-
-```text
-Full Watershed
-```
-
-For:
-
-- watershed condition
-- watershed trends
-- intervention context
-- overall assessment
-
-### UI
-
-Provide:
-
-```text
-Local Context       500 m
-Broader Context     2 km
-Full Watershed      Boundary
-Custom              User-selected
-```
-
-The radius should ideally become **feature-dependent** rather than one universal value.
+- [x] **Micro-Site (0.5 km / 500 m)**: 1.0 km × 1.0 km window (~100 ha) for immediate intervention surroundings, check dam pond footprints, and visible civil structures.
+- [x] **Local Context (1.0 km)**: 2.0 km × 2.0 km window (~400 ha) for surrounding village clusters and localized micro-watershed vegetation trends.
+- [x] **Standard Catchment Focus (2.0 km - Default)**: 4.0 km × 4.0 km window (~1,600 ha) for sub-basin drainage relationships and agricultural land cover monitoring.
+- [x] **Regional Catchment (5.0 km)**: 10.0 km × 10.0 km window (~10,000–10,200 ha) for broad catchment health, regional drainage divides, and multi-village watershed assessment.
+- [x] **Arbitrary Custom Radius (0.2 km to 25.0 km)**: Dedicated numeric input with step 0.1 km and "Apply Radius" trigger in both place search and direct coordinate entry drawers.
+- [x] **Leaflet Physical Anchor**: Blue dashed `<Circle>` rendered in meters (`radius_km * 1000`), metric `<ScaleControl>` scale bar, and live HUD badge (`AOI Radius: X.X km | Spatial Window: Y.Y km × Y.Y km · ZZZZ ha`).
+- [x] **Land Cover Dynamic Hectares**: Real-time recalculation of total catchment hectares and square kilometers from the segmented PyTorch tensor.
+- [x] **What-If Simulator Scalability**: Dynamic slider bounds (`maxDams`, `maxAfforestation`, `maxBunding`, `maxPonds`) and presets that scale realistically with the active radius size and available hectares.
+- [x] **Processing Time Caution Notice**: Prominent UI notice alerting users that larger radii (> 2.0 km / 5.0 km) span ~10,000+ ha and require streaming larger 10m Sentinel-2 multi-spectral bands and 30m DEM elevation grids (~30–50s vs ~10–20s).
+- [x] **Strict English Geocoding**: OpenStreetMap Nominatim queried with `&accept-language=en&namedetails=1` to guarantee English place names and prevent Hindi/Devanagari scripts.
+- [x] **Impartial Initial Console**: Clean state on page load without hardcoded demo locations preselected.
 
 ---
 

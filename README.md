@@ -74,8 +74,11 @@ Watershed Signal provides two complementary interfaces:
      - *Investigation*: Dynamic catchment diagnostic with "What is Changed / Affected" pillars and "Recommended Engineering Changes" (all coordinates AOI-clamped via `clampToAoi()`).
      - *What-If Simulator*: Dedicated standalone policy simulator with 4 intervention sliders, 1-click strategy presets, live ecological metric recalculation, land cover transition matrix, and ROI projection.
      - *Scientific Validation*: Peer-grade empirical metrics tables, per-class IoU breakdown, 20-region change evaluation, and government data adapter design.
-   - **Live Satellite Analysis**: Enter any place name in India or custom coordinates; triggers live Sentinel-2 STAC queries, GPU U-Net inference, and DEM flow-routing with a live radar scanner and progress tracker.
-   - **Zero Emojis**: All icons are `@phosphor-icons/react` SVG — zero unicode emojis in the entire codebase.
+    - **Live Satellite Analysis & Multi-Radius Spatial Hierarchy**: Enter any place name in India or custom coordinates; select from 0.5 km (Micro-Site ~100 ha), 1.0 km (Local Context ~400 ha), 2.0 km (Standard ~1,600 ha), 5.0 km (Regional Catchment ~10,000+ ha), or custom radius (0.2–25 km).
+    - **Physical Ground-Truth Anchoring**: Blue dashed Leaflet `<Circle>` in physical meters (`radius_km * 1000`), metric `<ScaleControl>`, real-time HUD telemetry, and dynamic catchment area calculation in hectares and km².
+    - **Processing Time Awareness**: Built-in notices alerting users that larger radii (> 2.0 km / 5.0 km) span larger physical areas (~10,000+ ha) and download expanded 10m Sentinel-2 bands and 30m DEM elevation grids (~30–50s vs ~10–20s).
+    - **Strict English Geocoding & Impartial Console**: OpenStreetMap Nominatim queries enforce English place names with zero Hindi/Devanagari text, with no hardcoded preselected demo location on load.
+    - **Zero Emojis**: All icons are `@phosphor-icons/react` SVG — zero unicode emojis in the entire codebase.
 2. **Python Streamlit Dashboard (`project/app/`)**: A companion exploratory workbench (`streamlit_app.py`, `geo_photo.py`, `design.py`) for data science inspection, training checkpoint evaluation, and batch analysis.
 
 ---

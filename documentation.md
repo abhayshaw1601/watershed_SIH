@@ -146,9 +146,29 @@ needs the user's manual registration.
   IoU 54.1%, water IoU 83.4% — a retrain against the coverage fix is the
   logical next step, needs Colab GPU time).
 
+- **v4 — Dynamic User-Defined Multi-Radius Ingestion & Spatial Hierarchy**:
+  Replaced all static single-box assumptions with a multi-tier, feature-dependent
+  spatial hierarchy:
+  - **Micro-Site (0.5 km / 500m)**: ~100 ha window (~1.0 km span) for immediate
+    civil structure surroundings, pond footprints, and micro-vegetation.
+  - **Local Context (1.0 km)**: ~400 ha window (~2.0 km span) for village
+    clusters and localized micro-catchment slopes.
+  - **Standard Catchment Focus (2.0 km - Default)**: ~1,600 ha window (~4.0 km span)
+    for sub-basin drainage relationships and agricultural land-cover monitoring.
+  - **Regional Catchment (5.0 km)**: ~10,000–10,200 ha window (~10.0 km span)
+    for broad regional catchment divides and multi-village hydrological basins.
+  - **Arbitrary Custom Radius (0.2 km to 25.0 km)**: Any user-specified decimal radius.
+  - **Processing Time Scalability**: UI explicitly alerts users that higher radii
+    require higher satellite download bandwidth and GPU tensor computation time
+    (~30–50s for 5 km vs ~10–20s for standard radii).
+  - **Strict English Geocoding**: Nominatim queries parameterized with
+    `&accept-language=en&namedetails=1` to enforce English display names across India.
+  - **Impartial Initial Console**: No hardcoded location preloaded on mount.
+
 AOI is set in `project/src/config.py` (`AOI_NAME`, `AOI_CENTER_LAT/LON`,
 `AOI_BBOX`, `WORLDCOVER_TILE`) and mirrored in the Colab notebook's Config
-cell (`project/notebooks/build_notebook.py`).
+cell (`project/notebooks/build_notebook.py`), while live queries dynamically compute
+`bbox_around(lat, lon, half_km=radius_km)` in `app/aoi_picker.py` and `app/api_server.py`.
 
 ## 6. Pipeline stages
 
@@ -161,6 +181,77 @@ cell (`project/notebooks/build_notebook.py`).
    remaps ~11 WorldCover classes to the 7-class scheme. (An NDVI-based
    refinement pass was tried and fully reverted here — see section 6a for
    why; plain WorldCover remapping is the current, best-verified approach.)
+3. **DEM Hydrological Catchment & Drainage Delineation** (`dem_fetch.py`, `watershed_delineation.py`) —
+   fetches 30m Copernicus GLO-30 elevation data via Cloud-Optimized GeoTIFF (COG) HTTP range requests,
+   buffers the AOI by 1.75× to capture natural ridgelines, reprojects to local UTM, runs depression
+   conditioning (`fill_pits`, `fill_depressions`, `resolve_flats`), computes D8 flow routing, snaps
+   the pour point to the maximum accumulation cell inside the AOI, and traces both the topographic
+   catchment polygon and dendritic stream drainage channels.
+
+### 6.1 Sentinel-2 Temporal Search Windows & Scene Selection (T1 vs. T2)
+
+To evaluate physical watershed interventions (check dams, contour trenches, afforestation),
+the pipeline brackets a multi-year longitudinal gap using the Copernicus Sentinel-2 L2A catalog:
+
+| Date Tag | Search Date Range | Ecological & Operational Rationale |
+| :--- | :--- | :--- |
+| **T1 (Baseline)** | **2019-11-01 to 2020-03-31** | ~5-year baseline post-monsoon / Rabi dry season |
+| **T2 (Recent)** | **2024-11-01 to 2025-03-31** | Recent post-monsoon / Rabi dry season |
+| **S1 (Training Single-Date)** | **2024-11-01 to 2025-03-31** | Auxiliary site training diversity |
+
+**Key Design Considerations for Timelines:**
+- **5-Year Gap**: Captures true structural and ecological transitions (e.g. check dam water bodies,
+  soil conservation bunding, plantation growth) while filtering out single-season weather anomalies.
+- **Dry Season Window (Nov–Mar)**: Avoids heavy Indian monsoon cloud occlusions (filtered strictly for `<20%`
+  cloud cover) while maximizing optical contrast between standing water, active crops, dense tree canopy,
+  and bare fallow/barren soil.
+- **Coverage-First Selection (`_fully_covers`)**: Filters candidate scenes in the window to ensure the
+  scene's footprint fully covers the requested AOI bounding box before sorting by cloud cover.
+  The exact acquisition date of the matched scene is recorded in metadata as `t1_date` and `t2_date`.
+
+### 6.2 Copernicus GLO-30 DEM Hydrological Delineation Pipeline
+
+Everything in conventional remote sensing classifies pixels inside arbitrary rectangular bounding boxes.
+To provide actual watershed-development utility, this system derives physical hydrological boundaries
+from digital elevation data:
+
+```
+[Copernicus GLO-30 DEM (AWS COG Stream)]
+                  │
+                  ▼
+      [1.75× Bounding Box Buffer]
+                  │
+                  ▼
+  [Bilinear Reprojection to Local UTM]
+                  │
+                  ▼
+    [Hydrological Pit & Flat Conditioning]
+                  │
+                  ▼
+    [D8 Flow Direction & Flow Accumulation]
+                  │
+      ┌───────────┴───────────┐
+      ▼                       ▼
+[Pour Point Snapping]   [Stream Network]
+(Max accumulation cell) (Accumulation ≥ 500 cells)
+      │                       │
+      ▼                       ▼
+[Catchment Polygon]     [Dendritic Drainage Network]
+```
+
+1. **Elevation Streaming (`dem_fetch.py`)**: Uses `/vsicurl/` to stream only the intersecting
+   elevation window from AWS Open Data (`copernicus-dem-30m.s3.amazonaws.com`), caching the tile locally.
+2. **Topographic Buffer (`BUFFER_FACTOR = 1.75`)**: The fetch box is expanded by 75% so that flow paths
+   originating on natural ridge divides outside the viewer's immediate bounding box are captured.
+3. **UTM Projection**: Reprojects from WGS84 (`EPSG:4326`) to the local UTM zone (`EPSG:32643`/`32644`)
+   using bilinear interpolation, ensuring isotropic metric distance ($\Delta x = \Delta y$) for flow routing.
+4. **Hydrological Conditioning (`pysheds`)**: Resolves depressions and flats (`fill_pits`, `fill_depressions`,
+   `resolve_flats`) to prevent artificial pooling.
+5. **Pour Point & Stream Tracing**: Snaps to the cell with maximum flow accumulation inside the original AOI
+   (the natural drainage outlet), traces all contributing upstream cells into a watershed boundary mask,
+   and extracts all cells with accumulation $\ge 500$ as the active drainage channel network.
+6. **Scientific Honesty Caveat**: The boundary is an algorithmically-derived topographic approximation;
+   every output explicitly bears a caveat noting it is DEM-derived, not an official government survey record.
 ### 6a. The Bhuvan API detour that fixed the fallow/barren gap
 
 While chasing real Bhuvan LULC data (section 4's planned upgrade), the

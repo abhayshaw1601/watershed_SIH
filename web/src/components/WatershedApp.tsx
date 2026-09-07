@@ -248,7 +248,7 @@ export default function WatershedApp() {
                   T+{elapsedSeconds}s
                 </span>
                 <span className="font-mono text-[10px] text-muted-foreground">
-                  Expected ~25-35s
+                  Expected ~{(customLocation?.radiusKm || 2.0) > 3.0 ? "35-50s (larger radius)" : "20-30s"}
                 </span>
               </div>
             </div>
