@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/cn";
 import Button from "@/components/ui/Button";
-import { MagnifyingGlass, Crosshair, ArrowUpRight, Warning } from "@phosphor-icons/react";
+import { MagnifyingGlass, Crosshair, ArrowUpRight, Warning, CalendarBlank } from "@phosphor-icons/react";
 
 export type CustomLocation = {
   name: string;
@@ -11,6 +11,9 @@ export type CustomLocation = {
   lon: number;
   radiusKm: number;
   isCustom: boolean;
+  targetDate?: string;
+  t1Date?: string;
+  t2Date?: string;
 };
 
 const RADIUS_OPTIONS = [
@@ -41,7 +44,19 @@ export default function LocationPicker({
   const [customLon, setCustomLon] = useState("");
   const [coordRadius, setCoordRadius] = useState("2.0");
 
-  // Keep search input and radius in sync when customLocation updates
+  // Timeline inputs state
+  const [timelineMode, setTimelineMode] = useState<"latest" | "month" | "pair">(
+    customLocation?.t1Date && customLocation?.t2Date
+      ? "pair"
+      : customLocation?.targetDate
+      ? "month"
+      : "latest"
+  );
+  const [targetDate, setTargetDate] = useState<string>(customLocation?.targetDate || "2026-03");
+  const [t1Date, setT1Date] = useState<string>(customLocation?.t1Date || "2020-03");
+  const [t2Date, setT2Date] = useState<string>(customLocation?.t2Date || "2026-03");
+
+  // Keep search input, radius, and timeline in sync when customLocation updates
   useEffect(() => {
     if (customLocation) {
       if (customLocation.name) {
@@ -55,6 +70,15 @@ export default function LocationPicker({
         setIsCustomRadius(false);
       }
       setCoordRadius(String(customLocation.radiusKm));
+
+      if (customLocation.t1Date && customLocation.t2Date) {
+        setTimelineMode("pair");
+        setT1Date(customLocation.t1Date);
+        setT2Date(customLocation.t2Date);
+      } else if (customLocation.targetDate) {
+        setTimelineMode("month");
+        setTargetDate(customLocation.targetDate);
+      }
     }
   }, [customLocation]);
 
@@ -62,14 +86,30 @@ export default function LocationPicker({
     ? Math.max(0.2, Math.min(25, parseFloat(customRadiusValue) || 2.0))
     : selectedRadius;
 
+  function handleApplyTimeline(mode: "latest" | "month" | "pair", customTarget?: string, customT1?: string, customT2?: string) {
+    const tgt = customTarget || targetDate;
+    const t1 = customT1 || t1Date;
+    const t2 = customT2 || t2Date;
+    if (customLocation) {
+      onSelectCustom({
+        ...customLocation,
+        targetDate: mode === "latest" ? undefined : tgt,
+        t1Date: mode === "pair" ? t1 : undefined,
+        t2Date: mode === "pair" ? t2 : mode === "month" ? tgt : undefined,
+      });
+    }
+  }
+
   function handleRadiusPresetClick(val: number) {
     setIsCustomRadius(false);
     setSelectedRadius(val);
-    // If a location is currently active and radius is being changed, re-run analysis immediately!
     if (customLocation && customLocation.radiusKm !== val) {
       onSelectCustom({
         ...customLocation,
         radiusKm: val,
+        targetDate: timelineMode === "latest" ? undefined : targetDate,
+        t1Date: timelineMode === "pair" ? t1Date : undefined,
+        t2Date: timelineMode === "pair" ? t2Date : timelineMode === "month" ? targetDate : undefined,
       });
     }
   }
@@ -133,6 +173,9 @@ export default function LocationPicker({
         lon: parsedLon,
         radiusKm: effectiveRadius,
         isCustom: true,
+        targetDate: timelineMode === "latest" ? undefined : targetDate,
+        t1Date: timelineMode === "pair" ? t1Date : undefined,
+        t2Date: timelineMode === "pair" ? t2Date : timelineMode === "month" ? targetDate : undefined,
       });
       setIsSearching(false);
     } catch (err) {
@@ -158,8 +201,186 @@ export default function LocationPicker({
       lon: lonNum,
       radiusKm: radNum,
       isCustom: true,
+      targetDate: timelineMode === "latest" ? undefined : targetDate,
+      t1Date: timelineMode === "pair" ? t1Date : undefined,
+      t2Date: timelineMode === "pair" ? t2Date : timelineMode === "month" ? targetDate : undefined,
     });
   }
+
+  const renderTimelineSection = () => (
+    <div className="rounded-xl border border-foreground/10 bg-background/60 p-4 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <CalendarBlank size={16} className="text-amber" weight="bold" />
+          <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+            — Satellite Acquisition Timeline &amp; Date
+          </span>
+        </div>
+        <span className="font-mono text-xs text-foreground/80">
+          Timeline Target:{" "}
+          <strong className="text-amber">
+            {timelineMode === "latest"
+              ? "Latest Available Pass"
+              : timelineMode === "month"
+              ? `${targetDate} (Single Month/Date)`
+              : `Pair: ${t1Date} (T1) → ${t2Date} (T2)`}
+          </strong>
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setTimelineMode("latest");
+            handleApplyTimeline("latest");
+          }}
+          className={cn(
+            "rounded-lg border px-3 py-1.5 font-mono text-xs transition-all cursor-pointer",
+            timelineMode === "latest"
+              ? "border-foreground bg-foreground text-background shadow-sm font-semibold"
+              : "border-foreground/15 bg-background text-foreground/80 hover:border-foreground/40 hover:text-foreground"
+          )}
+        >
+          Latest Available Pass
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setTimelineMode("month");
+            handleApplyTimeline("month");
+          }}
+          className={cn(
+            "rounded-lg border px-3 py-1.5 font-mono text-xs transition-all cursor-pointer",
+            timelineMode === "month"
+              ? "border-foreground bg-foreground text-background shadow-sm font-semibold"
+              : "border-foreground/15 bg-background text-foreground/80 hover:border-foreground/40 hover:text-foreground"
+          )}
+        >
+          Target Month / Date...
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setTimelineMode("pair");
+            handleApplyTimeline("pair");
+          }}
+          className={cn(
+            "rounded-lg border px-3 py-1.5 font-mono text-xs transition-all cursor-pointer",
+            timelineMode === "pair"
+              ? "border-foreground bg-foreground text-background shadow-sm font-semibold"
+              : "border-foreground/15 bg-background text-foreground/80 hover:border-foreground/40 hover:text-foreground"
+          )}
+        >
+          Multi-Temporal Pair (T1 vs T2)...
+        </button>
+      </div>
+
+      {timelineMode === "month" && (
+        <div className="space-y-3 pt-2 border-t border-foreground/10 animate-fade-up">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="font-mono text-xs text-muted-foreground flex items-center gap-2">
+              <span>Target Month:</span>
+              <input
+                type="month"
+                min="2016-01"
+                max="2026-12"
+                value={targetDate.slice(0, 7)}
+                onChange={(e) => {
+                  setTargetDate(e.target.value);
+                  handleApplyTimeline("month", e.target.value);
+                }}
+                className="rounded-lg border border-foreground/20 bg-background px-3 py-1 text-xs font-mono outline-none focus:border-amber"
+              />
+            </label>
+            {customLocation && (
+              <button
+                type="button"
+                onClick={() => handleApplyTimeline("month")}
+                className="rounded-lg border border-amber/50 bg-amber/15 text-amber px-3 py-1 font-mono text-xs font-semibold hover:bg-amber/25 transition-colors cursor-pointer"
+              >
+                Fetch Satellite Data for {targetDate}
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-mono text-[11px] text-muted-foreground mr-1">Quick Seasons:</span>
+            {[
+              { label: "🌸 Pre-Monsoon 2026", val: "2026-03" },
+              { label: "❄️ Post-Monsoon 2025", val: "2025-12" },
+              { label: "🌾 Kharif Peak 2025", val: "2025-08" },
+              { label: "☀️ Summer Dry 2024", val: "2024-05" },
+              { label: "🏛️ 5-Yr Baseline 2020", val: "2020-03" },
+            ].map((s) => (
+              <button
+                key={s.val}
+                type="button"
+                onClick={() => {
+                  setTargetDate(s.val);
+                  handleApplyTimeline("month", s.val);
+                }}
+                className={cn(
+                  "rounded-full border px-2.5 py-0.5 font-mono text-[11px] transition-colors cursor-pointer",
+                  targetDate === s.val
+                    ? "border-amber bg-amber/20 text-amber font-semibold"
+                    : "border-foreground/15 bg-background text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {timelineMode === "pair" && (
+        <div className="space-y-3 pt-2 border-t border-foreground/10 animate-fade-up">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="block font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                T1 Baseline Timeline (Historical / Pre-Intervention)
+              </label>
+              <input
+                type="month"
+                min="2016-01"
+                max="2024-12"
+                value={t1Date.slice(0, 7)}
+                onChange={(e) => setT1Date(e.target.value)}
+                className="w-full rounded-lg border border-foreground/20 bg-background px-3 py-1.5 text-xs font-mono outline-none focus:border-foreground"
+              />
+              <span className="font-mono text-[10px] text-muted-foreground">e.g. 2020-03 (Baseline benchmark)</span>
+            </div>
+            <div className="space-y-1">
+              <label className="block font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                T2 Assessment Timeline (Recent / Post-Intervention)
+              </label>
+              <input
+                type="month"
+                min="2020-01"
+                max="2026-12"
+                value={t2Date.slice(0, 7)}
+                onChange={(e) => setT2Date(e.target.value)}
+                className="w-full rounded-lg border border-foreground/20 bg-background px-3 py-1.5 text-xs font-mono outline-none focus:border-foreground"
+              />
+              <span className="font-mono text-[10px] text-muted-foreground">e.g. 2026-03 (Recent observation)</span>
+            </div>
+          </div>
+          {customLocation && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => handleApplyTimeline("pair")}
+                className="rounded-lg border border-amber/50 bg-amber/15 text-amber px-3 py-1 font-mono text-xs font-semibold hover:bg-amber/25 transition-colors cursor-pointer"
+              >
+                Run Change Analysis ({t1Date} → {t2Date})
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -188,21 +409,28 @@ export default function LocationPicker({
       {/* Place Search Form */}
       {!showCoordInputs ? (
         <form onSubmit={handleSearch} className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-2.5">
+          <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
-                <MagnifyingGlass size={16} weight="bold" />
-              </span>
               <input
                 type="text"
-                placeholder="Search any place in India (e.g. Ralegan Siddhi, Paithan, Hiware Bazar, Pune)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-xl border border-foreground/15 bg-background pl-10 pr-4 py-3 text-sm outline-none focus:border-foreground transition-colors font-sans placeholder:text-muted-foreground/70"
+                placeholder="Search any village, district, or watershed in India (e.g. Kadwanchi, Hiware Bazar, Ralegan Siddhi)..."
+                className="w-full rounded-2xl border border-foreground/15 bg-background px-4 py-3.5 pl-11 text-sm outline-none transition-all placeholder:text-muted-foreground/60 focus:border-foreground/40 focus:ring-2 focus:ring-foreground/5"
+              />
+              <MagnifyingGlass
+                size={18}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
+                weight="bold"
               />
             </div>
-            <Button type="submit" size="md" disabled={isSearching}>
-              {isSearching ? "Searching..." : "Search & Ingest AOI"}
+            <Button
+              type="submit"
+              size="lg"
+              disabled={isSearching || !searchQuery.trim()}
+              className="shrink-0"
+            >
+              {isSearching ? "Geocoding & Locating..." : "Search & Ingest AOI →"}
             </Button>
           </div>
 
@@ -304,6 +532,9 @@ export default function LocationPicker({
               </div>
             </div>
           </div>
+
+          {/* Timeline Section for Place Search */}
+          {renderTimelineSection()}
         </form>
       ) : (
         /* Manual Coordinates Drawer with Radius input */
@@ -385,6 +616,9 @@ export default function LocationPicker({
               Larger radius values expand the satellite download footprint and PyTorch tensor size, resulting in longer pipeline processing time (~30–50s).
             </div>
           </div>
+
+          {/* Timeline Section for Coordinate Mode */}
+          {renderTimelineSection()}
 
           <div className="flex justify-end pt-2">
             <Button type="submit" size="md">

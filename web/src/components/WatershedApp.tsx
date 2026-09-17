@@ -13,6 +13,7 @@ import FieldTab from "@/components/tabs/FieldTab";
 import InterventionsTab from "@/components/tabs/InterventionsTab";
 import SimulatorTab from "@/components/tabs/SimulatorTab";
 import ValidationTab from "@/components/tabs/ValidationTab";
+import BhuvanReportTab from "@/components/tabs/BhuvanReportTab";
 import LocationPicker, { type CustomLocation } from "@/components/LocationPicker";
 
 const MapTab = dynamic(() => import("@/components/tabs/MapTab"), {
@@ -35,6 +36,7 @@ const TABS = [
   { key: "map", label: "Map", needsChangePair: false },
   { key: "field", label: "Field Investigation", needsChangePair: false },
   { key: "investigation", label: "Investigation", needsChangePair: false },
+  { key: "bhuvan-report", label: "🇮🇳 ISRO Bhuvan Report", needsChangePair: false, highlight: true },
   { key: "validation", label: "Scientific Validation", needsChangePair: false },
   { key: "simulator", label: "What-If Simulator", needsChangePair: false },
 ] as const;
@@ -94,6 +96,9 @@ export default function WatershedApp() {
           lon: loc.lon,
           name: loc.name,
           radius_km: loc.radiusKm || 2.0,
+          target_date: loc.targetDate,
+          t1_date: loc.t1Date,
+          t2_date: loc.t2Date,
         }),
       });
 
@@ -192,10 +197,28 @@ export default function WatershedApp() {
                 <span>{meta.primary_source}</span>
               </span>
             )}
-            {meta?.bhuvan_stats?.status === "success" && (
-              <span className="rounded-full border border-sage/40 bg-sage/10 px-3 py-1 font-mono text-xs font-semibold text-sage flex items-center gap-1.5">
-                <span>🇮🇳</span>
-                <span>ISRO Bhuvan 50k LULC Verified</span>
+            <button
+              onClick={() => setTab("bhuvan-report")}
+              className={cn(
+                "rounded-full border px-3 py-1 font-mono text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs",
+                tab === "bhuvan-report"
+                  ? "border-amber bg-amber text-black"
+                  : meta?.bhuvan_stats?.status === "success"
+                  ? "border-amber/50 bg-amber/15 text-amber hover:bg-amber/25 hover:border-amber"
+                  : "border-amber/30 bg-amber/5 text-amber/90 hover:bg-amber/10"
+              )}
+              title="Open official ISRO Bhuvan 50k LULC ground-truth audit"
+            >
+              <span>🇮🇳</span>
+              <span>ISRO Bhuvan Report</span>
+              <span className="rounded-full bg-amber/20 px-1.5 py-0.2 font-mono text-[9px] uppercase tracking-wider">
+                {meta?.bhuvan_stats?.status === "success" ? "Live Verified" : "50k Standard"}
+              </span>
+            </button>
+            {(customLocation?.targetDate || meta?.t2_date) && (
+              <span className="rounded-full border border-amber/40 bg-amber/10 px-3 py-1 font-mono text-xs font-semibold text-amber flex items-center gap-1.5">
+                <span>📅</span>
+                <span>Timeline: {meta?.t2_date || customLocation?.targetDate}</span>
               </span>
             )}
             {meta?.watershed_meta?.admin && (
@@ -234,7 +257,7 @@ export default function WatershedApp() {
       </header>
 
       {/* ---- Unified Location Control Deck ---- */}
-      <div className="mt-8 rounded-2xl border border-foreground/10 bg-foreground/[0.02] p-5 sm:p-6 shadow-sm">
+      <div className="mt-8 rounded-2xl border border-foreground/10 bg-foreground/2 p-5 sm:p-6 shadow-sm">
         <LocationPicker
           customLocation={customLocation}
           onSelectCustom={(loc) => {
@@ -287,7 +310,7 @@ export default function WatershedApp() {
           {/* Animated Progress Bar with glowing gradient */}
           <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-foreground/10">
             <div
-              className="h-full bg-gradient-to-r from-amber via-yellow-400 to-amber transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(217,119,6,0.5)]"
+              className="h-full bg-linear-to-r from-amber via-yellow-400 to-amber transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(217,119,6,0.5)]"
               style={{
                 width: `${Math.min(96, Math.max(15, elapsedSeconds * 2.8))}%`,
               }}
@@ -337,11 +360,20 @@ export default function WatershedApp() {
                   Pipeline Execution Complete: {completedInfo.siteName}
                 </span>
                 <span className="rounded-full bg-sage/20 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-sage uppercase tracking-wider">
-                  100% Real Satellite Data
+                  {meta?.primary_source?.includes("Bhoonidhi") ? "ISRO Bhoonidhi LISS-III" : "Sentinel-2 L2A"}
                 </span>
+                {meta?.bhuvan_stats?.status === "success" && (
+                  <button
+                    onClick={() => setTab("bhuvan-report")}
+                    className="rounded-full bg-amber/20 hover:bg-amber/30 border border-amber/40 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-amber uppercase tracking-wider flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <span>🇮🇳</span>
+                    <span>ISRO Bhuvan 50k Ground Truth Linked →</span>
+                  </button>
+                )}
               </div>
               <p className="font-mono text-xs text-muted-foreground mt-1">
-                Completed in <strong className="text-foreground">{completedInfo.duration}s</strong> at {completedInfo.timestamp} · Sentinel-2 L2A optical stack classified by trained Model 1 U-Net checkpoint
+                Completed in <strong className="text-foreground">{completedInfo.duration}s</strong> at {completedInfo.timestamp} · {meta?.primary_source || "Sentinel-2 L2A"} classified by PyTorch Model 1 U-Net {meta?.bhuvan_stats?.status === "success" ? `· Validated against official ISRO Bhuvan ${meta.bhuvan_stats.state ? `(${meta.bhuvan_stats.state})` : ""} 50k LULC database` : ""}
               </p>
             </div>
           </div>
@@ -358,13 +390,14 @@ export default function WatershedApp() {
       {/* ---- High-Precision Segmented Tab Bar ---- */}
       <div className="mt-8">
         <div
-          className="flex gap-1.5 overflow-x-auto rounded-2xl border border-foreground/15 bg-foreground/[0.03] p-1.5 shadow-sm"
+          className="flex gap-1.5 overflow-x-auto rounded-2xl border border-foreground/15 bg-foreground/3 p-1.5 shadow-sm"
           role="tablist"
           aria-label="Watershed views"
         >
           {TABS.map((t) => {
             const disabled = t.needsChangePair && meta ? !meta.has_change_pair : false;
             const isActive = tab === t.key;
+            const isHighlight = "highlight" in t && t.highlight;
             return (
               <button
                 key={t.key}
@@ -375,7 +408,11 @@ export default function WatershedApp() {
                 className={cn(
                   "whitespace-nowrap rounded-xl px-4 py-2.5 font-mono text-xs uppercase tracking-wider transition-all",
                   isActive
-                    ? "bg-background text-foreground shadow-sm border border-foreground/15 font-semibold"
+                    ? isHighlight
+                      ? "bg-amber text-black shadow-sm font-bold border border-amber"
+                      : "bg-background text-foreground shadow-sm border border-foreground/15 font-semibold"
+                    : isHighlight
+                    ? "text-amber hover:bg-amber/10 font-semibold border border-amber/30"
                     : "text-muted-foreground hover:text-foreground hover:bg-background/40",
                   disabled && "cursor-not-allowed opacity-30 hover:bg-transparent"
                 )}
@@ -388,7 +425,7 @@ export default function WatershedApp() {
       </div>
 
       {/* ---- Tab content ---- */}
-      <div className="mt-8 rounded-2xl border border-foreground/10 bg-background/60 p-6 sm:p-8 shadow-sm min-h-[500px]">
+      <div className="mt-8 rounded-2xl border border-foreground/10 bg-background/60 p-6 sm:p-8 shadow-sm min-h-125">
         {loadError ? (
           <div className="rounded-2xl border border-foreground/10 p-10 text-center">
             <p className="text-sm text-muted-foreground">Couldn&apos;t load demo data: {loadError}</p>
@@ -411,7 +448,7 @@ export default function WatershedApp() {
               
               {/* Rotating radar sweep beam */}
               <div className="absolute inset-0 rounded-full animate-radar pointer-events-none">
-                <div className="h-1/2 w-1/2 rounded-tl-full bg-gradient-to-br from-foreground/25 to-transparent" />
+                <div className="h-1/2 w-1/2 rounded-tl-full bg-linear-to-br from-foreground/25 to-transparent" />
               </div>
 
               {/* Center satellite telemetry dot */}
@@ -426,7 +463,8 @@ export default function WatershedApp() {
                 Live PyTorch & Satellite Stream Active
               </span>
               <h3 className="mt-3 font-display text-xl sm:text-2xl tracking-tight">
-                Analyzing Sentinel-2 imagery for {customLocation?.name || "Selected AOI"}...
+                Analyzing satellite imagery for {customLocation?.name || "Selected AOI"}
+                {customLocation?.targetDate ? ` (${customLocation.targetDate})` : ""}...
               </h3>
               <p className="mt-2 font-mono text-xs text-muted-foreground">
                 Stage {currentStage.step}/4: {currentStage.label} — {currentStage.detail}
@@ -436,8 +474,10 @@ export default function WatershedApp() {
         ) : !meta ? (
           tab === "validation" ? (
             <ValidationTab meta={meta} />
+          ) : tab === "bhuvan-report" ? (
+            <BhuvanReportTab meta={meta} onSelectTab={(t) => setTab(t as TabKey)} />
           ) : (
-            <div className="relative overflow-hidden rounded-2xl border border-foreground/15 bg-foreground/[0.02] p-10 sm:p-14 text-center">
+            <div className="relative overflow-hidden rounded-2xl border border-foreground/15 bg-foreground/2 p-10 sm:p-14 text-center">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-foreground/15 bg-background shadow-sm text-foreground/70">
                 <Crosshair size={32} weight="bold" />
               </div>
@@ -521,6 +561,7 @@ export default function WatershedApp() {
             {tab === "map" && <MapTab site={siteKey} meta={meta} />}
             {tab === "field" && <FieldTab site={siteKey} meta={meta} />}
             {tab === "investigation" && <InterventionsTab site={siteKey} meta={meta} />}
+            {tab === "bhuvan-report" && <BhuvanReportTab meta={meta} onSelectTab={(t) => setTab(t as TabKey)} />}
             {tab === "validation" && <ValidationTab meta={meta} />}
             {tab === "simulator" && <SimulatorTab meta={meta} />}
           </>

@@ -217,15 +217,36 @@ def find_matching_bhoonidhi_scenes(bbox: tuple = AOI_BBOX) -> list:
     return matches
 
 
-def find_best_bhoonidhi_scene(bbox: tuple = AOI_BBOX, date_tag: str = "T2") -> Optional[Tuple[Any, Path, str]]:
+def find_best_bhoonidhi_scene(
+    bbox: tuple = AOI_BBOX,
+    date_tag: str = "T2",
+    target_date: Optional[str] = None,
+) -> Optional[Tuple[Any, Path, str]]:
     """
     Find best Bhoonidhi scene covering bbox:
+      - If target_date specified: picks scene closest in date to target_date.
       - T1: earliest available scene
       - T2: latest available scene
     """
     matches = find_matching_bhoonidhi_scenes(bbox)
     if not matches:
         return None
+
+    if target_date:
+        try:
+            clean = target_date.strip()
+            if len(clean) == 7:  # YYYY-MM
+                tgt = datetime.strptime(clean, "%Y-%m").date()
+            elif len(clean) == 4:  # YYYY
+                tgt = datetime.strptime(f"{clean}-06", "%Y-%m").date()
+            else:
+                tgt = datetime.strptime(clean[:10], "%Y-%m-%d").date()
+            matches.sort(key=lambda x: abs((x[0] - tgt).days))
+            print(f"--> [Bhoonidhi] Matched closest scene for target date '{target_date}': {matches[0][0]} ({matches[0][2][:25]}...)", flush=True)
+            return matches[0]
+        except Exception as e:
+            print(f"--> [Bhoonidhi] Could not parse target date '{target_date}': {e}. Using date_tag order.", flush=True)
+
     if date_tag == "T1" and len(matches) > 1:
         return matches[0]
     return matches[-1]
@@ -238,19 +259,20 @@ def load_or_fetch_optical_date(
     stack_path: Path,
     on_step=None,
     target_res: float = 10.0,
+    target_date: Optional[str] = None,
 ) -> Tuple[Any, str]:
     """
     Unified optical ingestion:
     1. Primary: If a Bhoonidhi Resourcesat-2A scene covers the bbox, extracts bands
        via /vsizip/ with zero disk unzipping overhead and builds 6-channel stack.
     2. Fallback: If outside Bhoonidhi footprint, automatically falls back to AWS S3
-       Sentinel-2 L2A STAC search and streaming.
+       Sentinel-2 L2A STAC search and streaming using target_date timeline.
     """
     def step(m):
         if on_step:
             on_step(m)
 
-    bhoonidhi_match = find_best_bhoonidhi_scene(bbox, date_tag=date_tag)
+    bhoonidhi_match = find_best_bhoonidhi_scene(bbox, date_tag=date_tag, target_date=target_date)
     if bhoonidhi_match:
         dt, zpath, stem = bhoonidhi_match
         step(f"[{date_tag}] Ingesting ISRO Bhoonidhi Resourcesat-2A LISS-III ({dt}) via /vsizip/...")
@@ -304,10 +326,30 @@ def load_or_fetch_optical_date(
     # Fallback to AWS STAC Sentinel-2
     from data_download import search_scene, clip_scene_to_stack
     from preprocessing import build_6channel_stack
+    import calendar
 
-    step(f"[{date_tag}] Searching Sentinel-2 catalog for imagery (AWS S3 fallback)...")
-    print(f"--> [Adapter] AOI outside Bhoonidhi coverage. Using AWS Sentinel-2 fallback for {date_tag}.", flush=True)
-    item = search_scene(bbox, date_tag)
+    custom_window = None
+    if target_date:
+        clean = target_date.strip()
+        try:
+            if len(clean) == 7:  # YYYY-MM
+                y, m = map(int, clean.split("-"))
+                last_day = calendar.monthrange(y, m)[1]
+                custom_window = f"{clean}-01/{clean}-{last_day:02d}"
+            elif len(clean) == 10:  # YYYY-MM-DD
+                from datetime import timedelta
+                d = datetime.strptime(clean, "%Y-%m-%d").date()
+                start_d = d - timedelta(days=15)
+                end_d = d + timedelta(days=15)
+                custom_window = f"{start_d}/{end_d}"
+            elif len(clean) == 4:  # YYYY
+                custom_window = f"{clean}-01-01/{clean}-12-31"
+        except Exception as e:
+            print(f"--> [Adapter] Error formatting custom_window from '{target_date}': {e}", flush=True)
+
+    step(f"[{date_tag}] Searching Sentinel-2 catalog for imagery (AWS S3 fallback{f', window: {custom_window}' if custom_window else ''})...")
+    print(f"--> [Adapter] Searching Sentinel-2 for {date_tag} (custom_window={custom_window}).", flush=True)
+    item = search_scene(bbox, date_tag, custom_window=custom_window)
     dt = item.datetime.date()
     step(f"[{date_tag}] Streaming & clipping scene bands ({dt})...")
     clip_scene_to_stack(item, bbox, raw_path)

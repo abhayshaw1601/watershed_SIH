@@ -100,12 +100,12 @@ def bbox_around(lat: float, lon: float, half_km: float = HALF_KM):
     return (lon - dlon, lat - dlat, lon + dlon, lat + dlat)
 
 
-def run_pipeline(bbox, label: str, model, device, on_step=None):
+def run_pipeline(bbox, label: str, model, device, on_step=None, t1_target=None, t2_target=None):
     """Fetch T1+T2, build stacks, run Model 1 + Tier-1 change detection in parallel.
 
     Uses ThreadPoolExecutor to concurrently:
-      1. Search, stream bands, build 6-channel stack, and infer for T1.
-      2. Search, stream bands, build 6-channel stack, and infer for T2.
+      1. Search, stream bands, build 6-channel stack, and infer for T1 (using t1_target timeline).
+      2. Search, stream bands, build 6-channel stack, and infer for T2 (using t2_target timeline).
       3. Stream Copernicus DEM, compute flow directions and catchment delineation.
     This reduces total pipeline wall-clock time by ~2-3x.
     """
@@ -119,7 +119,10 @@ def run_pipeline(bbox, label: str, model, device, on_step=None):
         from data_adapter import load_or_fetch_optical_date
         raw_path = LIVE_DIR / f"{label}_{date_tag}_rgbnir.tif"
         stack_path = LIVE_DIR / f"{label}_{date_tag}_stack6.tif"
-        date_obj, source_label = load_or_fetch_optical_date(bbox, date_tag, raw_path, stack_path, on_step=step)
+        target_d = t1_target if date_tag == "T1" else t2_target
+        date_obj, source_label = load_or_fetch_optical_date(
+            bbox, date_tag, raw_path, stack_path, on_step=step, target_date=target_d
+        )
         step(f"[{date_tag}] Running land-cover model...")
         with _model_lock:
             class_map, img, profile = predict_class_map(model, stack_path, device)

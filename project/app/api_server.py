@@ -311,9 +311,13 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 lon = float(lon)
                 from aoi_picker import bbox_around, run_pipeline
 
-                bbox = bbox_around(lat, lon, half_km=radius_km)
+                target_date = payload.get("target_date")
+                t1_target = payload.get("t1_date")
+                t2_target = payload.get("t2_date") or target_date
+
                 print(f"\n=======================================================")
                 print(f"--> [Pipeline] INCOMING REQUEST for '{name}' at ({lat:.4f}, {lon:.4f}) with radius {radius_km:.1f} km")
+                print(f"--> [Pipeline] Timeline Preference: T1={t1_target or 'default'} | T2={t2_target or 'default'}")
                 print(f"--> [Pipeline] Bounding Box: {bbox}")
 
                 site_key = f"custom_live_{int(round(radius_km * 10))}"
@@ -322,22 +326,24 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 legacy_dir = WEB_DEMO_DIR / "custom_live"
                 legacy_dir.mkdir(parents=True, exist_ok=True)
 
-                # Tier-2 Cache Check (Memory / Redis)
-                cache_key = f"aoi_meta:{lat:.4f}_{lon:.4f}_{radius_km:.1f}"
+                # Tier-2 Cache Check (Memory / Redis) with timeline sensitivity
+                cache_key = f"aoi_meta:{lat:.4f}_{lon:.4f}_{radius_km:.1f}_{t1_target or 'def'}_{t2_target or 'def'}"
                 cached_meta = cache.get_json(cache_key)
                 if cached_meta is not None and (out_dir / "meta.json").exists() and (out_dir / "t2.png").exists():
-                    print(f"--> [Cache HIT] Instant response for '{name}' ({radius_km:.1f} km) via {cache.backend_name} cache (<10ms)!", flush=True)
+                    print(f"--> [Cache HIT] Instant response for '{name}' ({radius_km:.1f} km, timeline: {t2_target or 'default'}) via {cache.backend_name} cache (<10ms)!", flush=True)
                     print(f"=======================================================\n")
                     self._respond_json(200, {"status": "ok", "siteKey": site_key, "meta": cached_meta, "cached": True})
                     return
 
                 model, device = get_model()
-                print(f"--> [Pipeline] Querying live Sentinel-2 STAC imagery & running PyTorch Model 1 U-Net on {device}...", flush=True)
+                print(f"--> [Pipeline] Querying live Sentinel-2 / Bhoonidhi STAC imagery & running PyTorch Model 1 U-Net on {device}...", flush=True)
 
                 (results, change_map, health, trend, alerts,
                  watershed_mask, drainage_network, pour_point, watershed_caveat, watershed_context) = run_pipeline(
                     bbox, site_key, model, device,
-                    on_step=lambda m: print(f"    --> {m}", flush=True)
+                    on_step=lambda m: print(f"    --> {m}", flush=True),
+                    t1_target=t1_target,
+                    t2_target=t2_target,
                 )
 
                 t1_map = results["T1"]["class_map"]

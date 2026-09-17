@@ -48,7 +48,9 @@ export type SiteMeta = {
   bhuvan_stats?: {
     status?: string;
     source?: string;
+    state?: string;
     total_sqkm?: number;
+    token_valid?: boolean;
     classes?: Record<string, { code?: string; sqkm?: number; pct?: number }>;
   };
   watershed_meta?: {

@@ -55,21 +55,42 @@ def _fully_covers(item_bbox, bbox) -> bool:
     return ib0 <= minx and ib1 <= miny and ib2 >= maxx and ib3 >= maxy
 
 
-def search_scene(bbox, date_tag, max_cloud=20, limit=30):
+def search_scene(bbox, date_tag, max_cloud=20, limit=30, custom_window=None):
     """Find the lowest-cloud scene over bbox in the window for this date tag,
     preferring one whose own footprint fully covers the requested bbox."""
     catalog = get_stac_catalog()
+    dt_val = custom_window or DATE_WINDOWS.get(date_tag, date_tag)
     search = catalog.search(
         collections=[STAC_COLLECTION],
         bbox=bbox,
-        datetime=DATE_WINDOWS[date_tag],
+        datetime=dt_val,
         query={"eo:cloud_cover": {"lt": max_cloud}},
         limit=limit,
     )
     items = list(search.items())
     if not items:
+        # Relax cloud cover limit if strict threshold yielded 0
+        search_relaxed = catalog.search(
+            collections=[STAC_COLLECTION],
+            bbox=bbox,
+            datetime=dt_val,
+            limit=limit,
+        )
+        items = list(search_relaxed.items())
+
+    if not items and custom_window and date_tag in DATE_WINDOWS:
+        print(f"--> [STAC] No scene found in custom window '{custom_window}'. Falling back to {date_tag} default window.", flush=True)
+        search_fallback = catalog.search(
+            collections=[STAC_COLLECTION],
+            bbox=bbox,
+            datetime=DATE_WINDOWS[date_tag],
+            limit=limit,
+        )
+        items = list(search_fallback.items())
+
+    if not items:
         raise RuntimeError(
-            f"No low-cloud Sentinel-2 scene found for bbox={bbox}, date_tag={date_tag} "
+            f"No Sentinel-2 scene found for bbox={bbox}, date_tag={date_tag}, window={dt_val} "
             "-- widen the date range or cloud threshold."
         )
 
