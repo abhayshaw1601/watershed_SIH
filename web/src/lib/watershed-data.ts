@@ -42,6 +42,17 @@ export type SiteMeta = {
   alerts?: Alert[];
   radius_km?: number;
   watershed_caveat?: string;
+  primary_source?: string;
+  t1_source?: string;
+  t2_source?: string;
+  bhuvan_stats?: {
+    status?: string;
+    source?: string;
+    state?: string;
+    total_sqkm?: number;
+    token_valid?: boolean;
+    classes?: Record<string, { code?: string; sqkm?: number; pct?: number }>;
+  };
   watershed_meta?: {
     watershed_id?: string;
     watershed_name?: string;

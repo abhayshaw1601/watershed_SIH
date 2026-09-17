@@ -7,6 +7,7 @@ Runs with:
   uv run python project/app/api_server.py
 """
 
+import io
 import json
 import sys
 import traceback
@@ -29,8 +30,16 @@ sys.path.insert(0, str(PROJECT_ROOT / "app"))
 import numpy as np
 from PIL import Image, ImageDraw
 
+def img_to_bytes(img: Image.Image, format="PNG") -> bytes:
+    buf = io.BytesIO()
+    img.save(buf, format=format)
+    return buf.getvalue()
+
 import csv
 import os
+import dotenv
+dotenv.load_dotenv(PROJECT_ROOT / ".env")
+
 from config import (
     DATA_PROCESSED, MODELS_DIR, CLASS_NAMES, CLASS_COLORS, CHANGE_CLASS_NAMES,
     NUM_CLASSES, NODATA_CLASS
@@ -56,7 +65,7 @@ def read_validation_log() -> list[dict]:
 
 
 HOST = os.environ.get("HOST", "0.0.0.0")
-PORT = int(os.environ.get("PORT", 3000))
+PORT = int(os.environ.get("PORT", 8000))
 MODEL1_PATH = MODELS_DIR / "model1_lulc_unet.pt"
 WEB_DEMO_DIR = PROJECT_ROOT.parent / "web" / "public" / "demo-data"
 
@@ -148,6 +157,8 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 "port": PORT,
                 "endpoints": [
                     "/api/health",
+                    "/api/bhuvan/status",
+                    "/api/bhuvan/aoi-stats",
                     "/api/interventions",
                     "/api/field-log",
                     "/api/geocode?q=place_name",
@@ -174,6 +185,47 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 "trained_sites": ["Kadwanchi", "Tamhini Ghat", "Donimalai", "Jayakwadi Dam"],
             }
             self._respond_json(200, data)
+
+        elif path == "/api/bhuvan/status":
+            try:
+                from data_adapter import get_bhuvan_token, find_best_bhoonidhi_scene
+                bhuvan_token = get_bhuvan_token()
+                bhoonidhi_match = find_best_bhoonidhi_scene()
+                scene_name = str(bhoonidhi_match[2] if len(bhoonidhi_match) > 2 else bhoonidhi_match[1]) if bhoonidhi_match else None
+                print(f"[{timestamp}] [API] /api/bhuvan/status -> Bhuvan: {'LIVE TOKEN' if bhuvan_token else 'NOT SET'} | Bhoonidhi: {scene_name or 'None'} | Cache: {cache.backend_name.upper()}", flush=True)
+                self._respond_json(200, {
+                    "status": "online",
+                    "bhuvan_connected": bool(bhuvan_token),
+                    "bhuvan_token_configured": bool(bhuvan_token),
+                    "bhoonidhi_active": bool(bhoonidhi_match),
+                    "bhoonidhi_scene": scene_name,
+                    "cache_backend": cache.backend_name,
+                    "fallback_tier": "AWS S3 Open Data (Copernicus GLO-30 / Sentinel-2 L2A)",
+                })
+            except Exception as e:
+                print(f"[{timestamp}] [API] /api/bhuvan/status ERROR: {e}", flush=True)
+                self._respond_json(500, {"error": str(e)})
+
+        elif path == "/api/bhuvan/aoi-stats":
+            try:
+                from data_adapter import fetch_bhuvan_aoi_stats
+                qs = parse_qs(parsed.query)
+                if "minx" in qs and "miny" in qs and "maxx" in qs and "maxy" in qs:
+                    bbox = (
+                        float(qs["minx"][0]),
+                        float(qs["miny"][0]),
+                        float(qs["maxx"][0]),
+                        float(qs["maxy"][0]),
+                    )
+                    print(f"[{timestamp}] [API] /api/bhuvan/aoi-stats -> Request for custom bbox {bbox}", flush=True)
+                    stats = fetch_bhuvan_aoi_stats(bbox)
+                else:
+                    print(f"[{timestamp}] [API] /api/bhuvan/aoi-stats -> Request for default Kadwanchi AOI", flush=True)
+                    stats = fetch_bhuvan_aoi_stats()
+                self._respond_json(200, stats)
+            except Exception as e:
+                print(f"[{timestamp}] [API] /api/bhuvan/aoi-stats ERROR: {e}", flush=True)
+                self._respond_json(500, {"error": str(e)})
 
         elif path == "/api/interventions":
             records = read_interventions()
@@ -210,8 +262,60 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
             else:
                 self._respond_json(200, [])
 
+        elif path.startswith("/api/images/"):
+            # Stream cached binary rasters: /api/images/<site_key>/<image_name>
+            rel_path = path[len("/api/images/"):].strip("/")
+            parts = rel_path.split("/")
+            if len(parts) >= 2:
+                site_key = parts[0]
+                image_name = "/".join(parts[1:])
+                redis_key = f"image:{site_key}:{image_name}"
+
+                # 1. Primary: Stream from Redis / in-memory cache
+                data = cache.get_bytes(redis_key)
+                if data is not None:
+                    content_type = "image/png"
+                    if image_name.endswith(".json"):
+                        content_type = "application/json"
+                    elif image_name.endswith(".svg"):
+                        content_type = "image/svg+xml"
+                    self.send_response(200)
+                    self._send_cors_headers()
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+
+                # 2. Disk fallback (e.g. for static pre-packaged demo sites)
+                fallback_file = WEB_DEMO_DIR / site_key / image_name
+                if fallback_file.exists() and fallback_file.is_file():
+                    with open(fallback_file, "rb") as f:
+                        file_data = f.read()
+                    content_type = "image/png"
+                    if image_name.endswith(".json"):
+                        content_type = "application/json"
+                    elif image_name.endswith(".svg"):
+                        content_type = "image/svg+xml"
+                    self.send_response(200)
+                    self._send_cors_headers()
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self.send_header("Content-Length", str(len(file_data)))
+                    self.end_headers()
+                    self.wfile.write(file_data)
+                    return
+
+            self._respond_json(404, {"error": f"Image '{path}' not found in cache or disk"})
+
         elif path.startswith("/api/sites/"):
             site_name = path.replace("/api/sites/", "").strip("/")
+            # Check Redis first
+            cached_site_meta = cache.get_json(f"meta:{site_name}")
+            if cached_site_meta is not None:
+                self._respond_json(200, cached_site_meta)
+                return
             meta_file = WEB_DEMO_DIR / site_name / "meta.json"
             if meta_file.exists():
                 with open(meta_file, "r", encoding="utf-8") as f:
@@ -265,51 +369,56 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 lon = float(lon)
                 from aoi_picker import bbox_around, run_pipeline
 
-                bbox = bbox_around(lat, lon, half_km=radius_km)
+                target_date = payload.get("target_date")
+                t1_target = payload.get("t1_date")
+                t2_target = payload.get("t2_date") or target_date
+
+                bbox = bbox_around(lat, lon, radius_km)
+
                 print(f"\n=======================================================")
                 print(f"--> [Pipeline] INCOMING REQUEST for '{name}' at ({lat:.4f}, {lon:.4f}) with radius {radius_km:.1f} km")
+                print(f"--> [Pipeline] Timeline Preference: T1={t1_target or 'default'} | T2={t2_target or 'default'}")
                 print(f"--> [Pipeline] Bounding Box: {bbox}")
 
                 site_key = f"custom_live_{int(round(radius_km * 10))}"
-                out_dir = WEB_DEMO_DIR / site_key
-                out_dir.mkdir(parents=True, exist_ok=True)
-                legacy_dir = WEB_DEMO_DIR / "custom_live"
-                legacy_dir.mkdir(parents=True, exist_ok=True)
 
-                # Tier-2 Cache Check (Memory / Redis)
-                cache_key = f"aoi_meta:{lat:.4f}_{lon:.4f}_{radius_km:.1f}"
+                # Tier-2 Cache Check (Memory / Redis) with timeline sensitivity
+                cache_key = f"aoi_meta:{lat:.4f}_{lon:.4f}_{radius_km:.1f}_{t1_target or 'def'}_{t2_target or 'def'}"
                 cached_meta = cache.get_json(cache_key)
-                if cached_meta is not None and (out_dir / "meta.json").exists() and (out_dir / "t2.png").exists():
-                    print(f"--> [Cache HIT] Instant response for '{name}' ({radius_km:.1f} km) via {cache.backend_name} cache (<10ms)!", flush=True)
+                if cached_meta is not None and cache.has(f"image:{site_key}:t2.png"):
+                    print(f"--> [Cache HIT] Instant response for '{name}' ({radius_km:.1f} km, timeline: {t2_target or 'default'}) via {cache.backend_name} cache (<10ms)!", flush=True)
                     print(f"=======================================================\n")
                     self._respond_json(200, {"status": "ok", "siteKey": site_key, "meta": cached_meta, "cached": True})
                     return
 
                 model, device = get_model()
-                print(f"--> [Pipeline] Querying live Sentinel-2 STAC imagery & running PyTorch Model 1 U-Net on {device}...", flush=True)
+                print(f"--> [Pipeline] Querying live Sentinel-2 / Bhoonidhi STAC imagery & running PyTorch Model 1 U-Net on {device}...", flush=True)
 
                 (results, change_map, health, trend, alerts,
                  watershed_mask, drainage_network, pour_point, watershed_caveat, watershed_context) = run_pipeline(
                     bbox, site_key, model, device,
-                    on_step=lambda m: print(f"    --> {m}", flush=True)
+                    on_step=lambda m: print(f"    --> {m}", flush=True),
+                    t1_target=t1_target,
+                    t2_target=t2_target,
                 )
 
                 t1_map = results["T1"]["class_map"]
                 t2_map = results["T2"]["class_map"]
                 t1_date = str(results["T1"]["date"])
                 t2_date = str(results["T2"]["date"])
-                print(f"--> [Pipeline] Real Sentinel-2 scenes acquired & segmented successfully by Model 1 U-Net!", flush=True)
+                t1_source = results["T1"].get("source", "Satellite Ingestion")
+                t2_source = results["T2"].get("source", "Satellite Ingestion")
+                print(f"--> [Pipeline] Ingestion & classification complete: T1={t1_source} | T2={t2_source}", flush=True)
 
-                # Export PNGs to both radius-specific and legacy directory
+                # Query official ISRO Bhuvan 50k LULC ground truth statistics
+                from data_adapter import fetch_bhuvan_aoi_stats
+                bhuvan_stats = fetch_bhuvan_aoi_stats(bbox)
+                print(f"--> [Bhuvan LULC API] Official 50K baseline retrieved: {bhuvan_stats.get('source', 'Unknown')} ({bhuvan_stats.get('total_sqkm', 0)} km²)", flush=True)
+
+                # Colorize classified rasters
                 rgb_t1 = colorize(t1_map, CLASS_COLORS)
                 rgb_t2 = colorize(t2_map, CLASS_COLORS)
                 rgb_ch = colorize(change_map, CHANGE_CLASS_COLORS)
-
-                Image.fromarray(rgb_t1).save(out_dir / "t1.png")
-                Image.fromarray(rgb_t1).save(out_dir / "classmap_t1.png")
-                Image.fromarray(rgb_t2).save(out_dir / "t2.png")
-                Image.fromarray(rgb_t2).save(out_dir / "classmap_t2.png")
-                Image.fromarray(rgb_ch).save(out_dir / "change.png")
 
                 # Dynamic Watershed & Drainage overlays
                 h, w = t2_map.shape
@@ -389,14 +498,27 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     for sx, sy in stems:
                         draw_branch(sx, sy, outlet_x, outlet_y, depth=0, max_depth=3)
 
-                for target_dir in (out_dir, legacy_dir):
-                    Image.fromarray(rgb_t1).save(target_dir / "t1.png")
-                    Image.fromarray(rgb_t1).save(target_dir / "classmap_t1.png")
-                    Image.fromarray(rgb_t2).save(target_dir / "t2.png")
-                    Image.fromarray(rgb_t2).save(target_dir / "classmap_t2.png")
-                    Image.fromarray(rgb_ch).save(target_dir / "change.png")
-                    boundary_img.save(target_dir / "watershed_boundary.png")
-                    drainage_img.save(target_dir / "drainage_network.png")
+                # Convert rasters to in-memory PNG bytes (Zero disk writes to public folder)
+                t1_bytes = img_to_bytes(Image.fromarray(rgb_t1))
+                t2_bytes = img_to_bytes(Image.fromarray(rgb_t2))
+                ch_bytes = img_to_bytes(Image.fromarray(rgb_ch))
+                boundary_bytes = img_to_bytes(boundary_img)
+                drainage_bytes = img_to_bytes(drainage_img)
+
+                raster_cache = {
+                    "t1.png": t1_bytes,
+                    "classmap_t1.png": t1_bytes,
+                    "t2.png": t2_bytes,
+                    "classmap_t2.png": t2_bytes,
+                    "change.png": ch_bytes,
+                    "watershed_boundary.png": boundary_bytes,
+                    "drainage_network.png": drainage_bytes,
+                }
+
+                # Store rasters in Redis / memory cache with 24-hour TTL
+                for fname, img_data in raster_cache.items():
+                    cache.set_bytes(f"image:{site_key}:{fname}", img_data, ttl=86400)
+                    cache.set_bytes(f"image:custom_live:{fname}", img_data, ttl=86400)
 
                 # Compute BBox WGS84
                 left, bottom, right, top = bbox
@@ -413,6 +535,10 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     "key": site_key,
                     "display_name": name,
                     "bbox_wgs84": bbox_wgs84,
+                    "primary_source": t2_source,
+                    "t1_source": t1_source,
+                    "t2_source": t2_source,
+                    "bhuvan_stats": bhuvan_stats,
                     "class_names": {str(k): v for k, v in CLASS_NAMES.items()},
                     "class_colors": {str(k): list(v) for k, v in CLASS_COLORS.items()},
                     "has_change_pair": True,
@@ -435,13 +561,14 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     } if watershed_context else None,
                 }
 
-                for target_dir in (out_dir, legacy_dir):
-                    with open(target_dir / "meta.json", "w", encoding="utf-8") as f:
-                        json.dump(meta, f, indent=2)
+                meta_json_bytes = json.dumps(meta, indent=2).encode("utf-8")
+                cache.set_bytes(f"image:{site_key}:meta.json", meta_json_bytes, ttl=86400)
+                cache.set_bytes("image:custom_live:meta.json", meta_json_bytes, ttl=86400)
+                cache.set_json(f"meta:{site_key}", meta, ttl=86400)
+                cache.set_json("meta:custom_live", meta, ttl=86400)
+                cache.set_json(cache_key, meta, ttl=86400)
 
-                cache.set_json(cache_key, meta)
-
-                print(f"--> [Pipeline] Analysis COMPLETE for '{name}'! Output saved to web/public/demo-data/{site_key}/meta.json")
+                print(f"--> [Pipeline] Analysis COMPLETE for '{name}'! Output cached in {cache.backend_name.upper()} (Zero disk writes to public folder).")
                 print(f"=======================================================\n")
                 self._respond_json(200, {"status": "ok", "siteKey": site_key, "meta": meta})
 
@@ -461,12 +588,29 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
 
 
 def run():
+    from data_adapter import get_bhuvan_token, find_best_bhoonidhi_scene, BHOONIDHI_DIR
+    bhuvan_token = get_bhuvan_token()
+    bhoonidhi_match = find_best_bhoonidhi_scene()
+    bhoonidhi_count = len(list(BHOONIDHI_DIR.glob("*.zip"))) if BHOONIDHI_DIR.exists() else 0
+
     server = ThreadingHTTPServer((HOST, PORT), WatershedApiHandler)
     server.daemon_threads = True
-    print("=" * 60)
-    print(f"  Watershed Signal Python API running on http://{HOST}:{PORT}")
-    print("  Endpoints: /api/health | /api/interventions | /api/pipeline/run")
-    print("=" * 60)
+    print("=" * 65)
+    print(f"  Watershed Signal Python API Server running on http://{HOST}:{PORT}")
+    print(f"  • Cache Backend    : {cache.backend_name.upper()}")
+    print(f"  • Bhuvan LULC API  : {'CONNECTED (Live Token)' if bhuvan_token else 'OFFLINE (Fallback Active)'}")
+    scene_str = str(bhoonidhi_match[2] if len(bhoonidhi_match) > 2 else bhoonidhi_match[1]) if bhoonidhi_match else 'None'
+    print(f"  • Bhoonidhi Data   : {bhoonidhi_count} scenes in bhoonidhi_data/ (Active: {scene_str[:25]}...)")
+    print(f"  • Model 1 Status   : {'LOADED (' + MODEL1_PATH.name + ')' if MODEL1_PATH.exists() else 'NOT FOUND'}")
+    print("-" * 65)
+    print("  Endpoints:")
+    print("    GET  /api/health")
+    print("    GET  /api/bhuvan/status")
+    print("    GET  /api/bhuvan/aoi-stats")
+    print("    GET  /api/interventions")
+    print("    GET  /api/field-log")
+    print("    POST /api/pipeline/run")
+    print("=" * 65, flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

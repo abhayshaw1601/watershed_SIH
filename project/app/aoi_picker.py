@@ -100,12 +100,12 @@ def bbox_around(lat: float, lon: float, half_km: float = HALF_KM):
     return (lon - dlon, lat - dlat, lon + dlon, lat + dlat)
 
 
-def run_pipeline(bbox, label: str, model, device, on_step=None):
+def run_pipeline(bbox, label: str, model, device, on_step=None, t1_target=None, t2_target=None):
     """Fetch T1+T2, build stacks, run Model 1 + Tier-1 change detection in parallel.
 
     Uses ThreadPoolExecutor to concurrently:
-      1. Search, stream bands, build 6-channel stack, and infer for T1.
-      2. Search, stream bands, build 6-channel stack, and infer for T2.
+      1. Search, stream bands, build 6-channel stack, and infer for T1 (using t1_target timeline).
+      2. Search, stream bands, build 6-channel stack, and infer for T2 (using t2_target timeline).
       3. Stream Copernicus DEM, compute flow directions and catchment delineation.
     This reduces total pipeline wall-clock time by ~2-3x.
     """
@@ -113,21 +113,26 @@ def run_pipeline(bbox, label: str, model, device, on_step=None):
         if on_step:
             on_step(msg)
 
-    step("Launching parallel Sentinel-2 (T1 & T2) downloads + DEM hydrological analysis...")
+    step("Launching multi-sensor ingestion (ISRO Bhoonidhi / Sentinel-2) + DEM hydrological analysis...")
 
     def process_date(date_tag: str):
-        step(f"[{date_tag}] Searching Sentinel-2 catalog for imagery...")
-        item = search_scene(bbox, date_tag)
+        from data_adapter import load_or_fetch_optical_date
         raw_path = LIVE_DIR / f"{label}_{date_tag}_rgbnir.tif"
-        step(f"[{date_tag}] Streaming & clipping scene bands ({item.datetime.date()})...")
-        clip_scene_to_stack(item, bbox, raw_path)
         stack_path = LIVE_DIR / f"{label}_{date_tag}_stack6.tif"
-        step(f"[{date_tag}] Computing NDVI / NDWI...")
-        build_6channel_stack(raw_path, stack_path)
+        target_d = t1_target if date_tag == "T1" else t2_target
+        date_obj, source_label = load_or_fetch_optical_date(
+            bbox, date_tag, raw_path, stack_path, on_step=step, target_date=target_d
+        )
         step(f"[{date_tag}] Running land-cover model...")
         with _model_lock:
             class_map, img, profile = predict_class_map(model, stack_path, device)
-        return date_tag, {"class_map": class_map, "img": img, "profile": profile, "date": item.datetime.date()}
+        return date_tag, {
+            "class_map": class_map,
+            "img": img,
+            "profile": profile,
+            "date": date_obj,
+            "source": source_label,
+        }
 
     def process_dem():
         if delineate_watershed_raw is None:
