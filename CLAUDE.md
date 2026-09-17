@@ -134,3 +134,24 @@ together when reporting status.
     Never claim "Official Watershed Boundary" unless authorized government vector layers are loaded.
     Position the system as an analytical decision-support layer sitting on top of SRISHTI-DRISHTI,
     Bhuvan, and Bhoonidhi using the adapter contracts defined in `data_adapter_design.md`.
+
+17. **Zero public directory writes & Redis in-memory raster caching.** Never save transient
+    pipeline outputs (`t1.png`, `t2.png`, `change.png`, `watershed_boundary.png`, `drainage_network.png`,
+    `classmap_*.png`, `meta.json`) to the `web/public/` directory on disk. All generated rasters
+    must be stored directly in Redis (`redis:alpine`) or in-memory LRU under `image:{site_key}:{filename}`
+    with a 24-hour TTL, streamed via `GET /api/images/{site_key}/{image_name}` and mapped in Next.js
+    via rewrite rules (`/demo-data/:site(custom_live[^/]*)/:file*` -> `/api/images/...`).
+    Only static pre-packaged demo benchmarks (`kadwanchi_watershed`, `tamhini_ghat_forest`, etc.)
+    reside on disk.
+
+18. **Strict Month & Year temporal selection.** Never provide or prompt for specific daily date
+    pickers (`type="date"`). Optical satellite revisit orbits (5–24 days) and cloud masking make
+    daily selections physically unrealistic. All temporal inputs must strictly accept **Month & Year**
+    (`YYYY-MM` via `type="month"`) or seasonal presets (Pre-Monsoon, Post-Monsoon, Kharif Peak, Summer Dry,
+    5-Year Baseline).
+
+19. **ISRO Bhuvan official ground-truth report & geoportal links.** The 9th tab (`bhuvan-report`)
+    presents official tripartite cross-validation against ISRO Bhuvan 1:50,000 thematic land cover.
+    The live Bhuvan IWMP GIS geoportal URL must strictly be `https://bhuvan-app1.nrsc.gov.in/iwmp/`.
+    The report must support high-contrast official `@media print` layout and tripartite sign-offs
+    (NRSC/ISRO, MoRD/WDC-PMKSY, Project Lead).

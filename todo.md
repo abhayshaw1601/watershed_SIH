@@ -209,8 +209,6 @@ The platform is designed around a decoupled **Data Ingestion Seam** (`data_adapt
   - Direct `/vsizip/` access without disk unzipping (1.66-second extraction benchmark).
   - Native 23.5m pixels resampled to 10m grid with synthetic blue proxy, NDVI, and NDWI to form Model 1's 6-channel tensor.
 
----
-
 ### Phase 5: Scientific Validation Dashboard Integration
 - [x] **5.1 Display Official Bhuvan Statistics**:
   - Integrated official ISRO Bhuvan 50k ground-truth table into `web/src/components/tabs/ValidationTab.tsx`.
@@ -218,6 +216,20 @@ The platform is designed around a decoupled **Data Ingestion Seam** (`data_adapt
 - [x] **5.2 Active Sensor Attribution & Kadwanchi Quick-Run**:
   - Dynamic sensor attribution badge in header (`ISRO Bhoonidhi LISS-III` vs `Sentinel-2 L2A Fallback`).
   - Featured **Kadwanchi Watershed (ISRO Bhoonidhi + Bhuvan Ground Truth)** quick-run query in UI.
+
+---
+
+### Phase 6: Production Hardening, Redis Raster Streaming & Executive Reporting
+- [x] **6.1 Zero Public Folder Writes & Redis In-Memory Image Store**:
+  - Replaced transient disk writes into `web/public/demo-data/` with binary Redis caching (`image:{site_key}:{image_name}`) with 24h TTL.
+  - Added binary streaming endpoint `GET /api/images/{site_key}/{image_name}` with Next.js proxy rewrite for zero-latency, zero-pollution delivery.
+- [x] **6.2 Strict Month & Year Temporal Selection**:
+  - Removed daily date pickers; restricted temporal selections strictly to Month & Year (`YYYY-MM`) matching physical satellite orbits with seasonal presets.
+- [x] **6.3 Dedicated 9th Tab: ISRO Bhuvan Ground-Truth Cross-Validation Report (`BhuvanReportTab.tsx`)**:
+  - Executive tripartite sign-offs (NRSC/ISRO, MoRD/WDC-PMKSY, Project Lead) and Document ID.
+  - Official verified link to live Bhuvan IWMP GIS geoportal (`https://bhuvan-app1.nrsc.gov.in/iwmp/`).
+  - Multi-class alignment convergence (73.3% overall, 97.1% agriculture cropland).
+  - High-contrast `@media print` layout and complete JSON export.
 
 ---
 
