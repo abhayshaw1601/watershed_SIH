@@ -113,21 +113,23 @@ def run_pipeline(bbox, label: str, model, device, on_step=None):
         if on_step:
             on_step(msg)
 
-    step("Launching parallel Sentinel-2 (T1 & T2) downloads + DEM hydrological analysis...")
+    step("Launching multi-sensor ingestion (ISRO Bhoonidhi / Sentinel-2) + DEM hydrological analysis...")
 
     def process_date(date_tag: str):
-        step(f"[{date_tag}] Searching Sentinel-2 catalog for imagery...")
-        item = search_scene(bbox, date_tag)
+        from data_adapter import load_or_fetch_optical_date
         raw_path = LIVE_DIR / f"{label}_{date_tag}_rgbnir.tif"
-        step(f"[{date_tag}] Streaming & clipping scene bands ({item.datetime.date()})...")
-        clip_scene_to_stack(item, bbox, raw_path)
         stack_path = LIVE_DIR / f"{label}_{date_tag}_stack6.tif"
-        step(f"[{date_tag}] Computing NDVI / NDWI...")
-        build_6channel_stack(raw_path, stack_path)
+        date_obj, source_label = load_or_fetch_optical_date(bbox, date_tag, raw_path, stack_path, on_step=step)
         step(f"[{date_tag}] Running land-cover model...")
         with _model_lock:
             class_map, img, profile = predict_class_map(model, stack_path, device)
-        return date_tag, {"class_map": class_map, "img": img, "profile": profile, "date": item.datetime.date()}
+        return date_tag, {
+            "class_map": class_map,
+            "img": img,
+            "profile": profile,
+            "date": date_obj,
+            "source": source_label,
+        }
 
     def process_dem():
         if delineate_watershed_raw is None:

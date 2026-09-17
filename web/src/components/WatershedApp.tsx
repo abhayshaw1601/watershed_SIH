@@ -23,7 +23,7 @@ const MapTab = dynamic(() => import("@/components/tabs/MapTab"), {
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "http://127.0.0.1:3000"
+  "http://127.0.0.1:8000"
 )
   .trim()
   .replace(/\/$/, "");
@@ -181,6 +181,23 @@ export default function WatershedApp() {
             <span className="rounded-full border border-foreground/15 bg-background px-3 py-1 font-mono text-xs text-foreground/80 font-medium">
               Radius: {meta?.radius_km ? `${meta.radius_km.toFixed(1)} km` : customLocation?.radiusKm ? `${customLocation.radiusKm.toFixed(1)} km` : "2.0 km (Default)"}
             </span>
+            {meta?.primary_source && (
+              <span className={cn(
+                "rounded-full border px-3 py-1 font-mono text-xs font-semibold flex items-center gap-1.5",
+                meta.primary_source.includes("Bhoonidhi")
+                  ? "border-amber/40 bg-amber/10 text-amber"
+                  : "border-foreground/15 bg-background text-foreground/80"
+              )}>
+                <span>🛰️</span>
+                <span>{meta.primary_source}</span>
+              </span>
+            )}
+            {meta?.bhuvan_stats?.status === "success" && (
+              <span className="rounded-full border border-sage/40 bg-sage/10 px-3 py-1 font-mono text-xs font-semibold text-sage flex items-center gap-1.5">
+                <span>🇮🇳</span>
+                <span>ISRO Bhuvan 50k LULC Verified</span>
+              </span>
+            )}
             {meta?.watershed_meta?.admin && (
               <span className="rounded-full border border-foreground/15 bg-background px-3 py-1 font-mono text-xs text-muted-foreground">
                 {meta.watershed_meta.admin.district || meta.watershed_meta.admin.state || "India"}
@@ -211,7 +228,7 @@ export default function WatershedApp() {
 
         <p className="mt-3 max-w-3xl text-sm sm:text-base text-muted-foreground leading-relaxed">
           {customLocation
-            ? `Evaluated against Sentinel-2 L2A optical stack & Copernicus 30m DEM elevation grid. Local context window covers a ${((meta?.radius_km || customLocation.radiusKm) * 2).toFixed(1)} km × ${((meta?.radius_km || customLocation.radiusKm) * 2).toFixed(1)} km area${meta ? ` (${Object.values(meta.class_breakdown).reduce((s, c) => s + (c.hectares || 0), 0).toFixed(0)} ha)` : ""} with organic hydrological catchment boundary delineation.`
+            ? `Evaluated using ${meta?.primary_source || "Sentinel-2 L2A optical stack"} & Copernicus 30m DEM elevation grid. ${meta?.bhuvan_stats?.status === "success" ? `Cross-validated against live ISRO Bhuvan 50k LULC database (${meta.bhuvan_stats.total_sqkm} km²). ` : ""}Local context window covers a ${((meta?.radius_km || customLocation.radiusKm) * 2).toFixed(1)} km × ${((meta?.radius_km || customLocation.radiusKm) * 2).toFixed(1)} km area${meta ? ` (${Object.values(meta.class_breakdown).reduce((s, c) => s + (c.hectares || 0), 0).toFixed(0)} ha)` : ""} with organic hydrological catchment boundary delineation.`
             : "Search any village, district, or watershed in India above, or provide custom latitude and longitude coordinates with a custom radius to launch live satellite land cover classification, change detection, and catchment health assessment."}
         </p>
       </header>
@@ -418,7 +435,7 @@ export default function WatershedApp() {
           </div>
         ) : !meta ? (
           tab === "validation" ? (
-            <ValidationTab />
+            <ValidationTab meta={meta} />
           ) : (
             <div className="relative overflow-hidden rounded-2xl border border-foreground/15 bg-foreground/[0.02] p-10 sm:p-14 text-center">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-foreground/15 bg-background shadow-sm text-foreground/70">
@@ -432,6 +449,22 @@ export default function WatershedApp() {
               </p>
               <div className="mt-6 flex flex-wrap items-center justify-center gap-2 font-mono text-xs text-muted-foreground">
                 <span>Quick demo queries:</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleRunCustomPipeline({
+                      name: "Kadwanchi Watershed",
+                      lat: 19.8921,
+                      lon: 75.9912,
+                      radiusKm: 2.0,
+                      isCustom: true,
+                    })
+                  }
+                  className="rounded-full border border-amber/50 bg-amber/10 px-3.5 py-1 text-foreground hover:bg-amber/20 font-semibold transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+                >
+                  <span className="text-amber">🇮🇳</span>
+                  <span>Kadwanchi Watershed (ISRO Bhoonidhi + Bhuvan)</span>
+                </button>
                 <button
                   type="button"
                   onClick={() =>
@@ -488,7 +521,7 @@ export default function WatershedApp() {
             {tab === "map" && <MapTab site={siteKey} meta={meta} />}
             {tab === "field" && <FieldTab site={siteKey} meta={meta} />}
             {tab === "investigation" && <InterventionsTab site={siteKey} meta={meta} />}
-            {tab === "validation" && <ValidationTab />}
+            {tab === "validation" && <ValidationTab meta={meta} />}
             {tab === "simulator" && <SimulatorTab meta={meta} />}
           </>
         )}

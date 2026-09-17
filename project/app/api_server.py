@@ -31,6 +31,9 @@ from PIL import Image, ImageDraw
 
 import csv
 import os
+import dotenv
+dotenv.load_dotenv(PROJECT_ROOT / ".env")
+
 from config import (
     DATA_PROCESSED, MODELS_DIR, CLASS_NAMES, CLASS_COLORS, CHANGE_CLASS_NAMES,
     NUM_CLASSES, NODATA_CLASS
@@ -56,7 +59,7 @@ def read_validation_log() -> list[dict]:
 
 
 HOST = os.environ.get("HOST", "0.0.0.0")
-PORT = int(os.environ.get("PORT", 3000))
+PORT = int(os.environ.get("PORT", 8000))
 MODEL1_PATH = MODELS_DIR / "model1_lulc_unet.pt"
 WEB_DEMO_DIR = PROJECT_ROOT.parent / "web" / "public" / "demo-data"
 
@@ -148,6 +151,8 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 "port": PORT,
                 "endpoints": [
                     "/api/health",
+                    "/api/bhuvan/status",
+                    "/api/bhuvan/aoi-stats",
                     "/api/interventions",
                     "/api/field-log",
                     "/api/geocode?q=place_name",
@@ -174,6 +179,47 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 "trained_sites": ["Kadwanchi", "Tamhini Ghat", "Donimalai", "Jayakwadi Dam"],
             }
             self._respond_json(200, data)
+
+        elif path == "/api/bhuvan/status":
+            try:
+                from data_adapter import get_bhuvan_token, find_best_bhoonidhi_scene
+                bhuvan_token = get_bhuvan_token()
+                bhoonidhi_match = find_best_bhoonidhi_scene()
+                scene_name = str(bhoonidhi_match[2] if len(bhoonidhi_match) > 2 else bhoonidhi_match[1]) if bhoonidhi_match else None
+                print(f"[{timestamp}] [API] /api/bhuvan/status -> Bhuvan: {'LIVE TOKEN' if bhuvan_token else 'NOT SET'} | Bhoonidhi: {scene_name or 'None'} | Cache: {cache.backend_name.upper()}", flush=True)
+                self._respond_json(200, {
+                    "status": "online",
+                    "bhuvan_connected": bool(bhuvan_token),
+                    "bhuvan_token_configured": bool(bhuvan_token),
+                    "bhoonidhi_active": bool(bhoonidhi_match),
+                    "bhoonidhi_scene": scene_name,
+                    "cache_backend": cache.backend_name,
+                    "fallback_tier": "AWS S3 Open Data (Copernicus GLO-30 / Sentinel-2 L2A)",
+                })
+            except Exception as e:
+                print(f"[{timestamp}] [API] /api/bhuvan/status ERROR: {e}", flush=True)
+                self._respond_json(500, {"error": str(e)})
+
+        elif path == "/api/bhuvan/aoi-stats":
+            try:
+                from data_adapter import fetch_bhuvan_aoi_stats
+                qs = parse_qs(parsed.query)
+                if "minx" in qs and "miny" in qs and "maxx" in qs and "maxy" in qs:
+                    bbox = (
+                        float(qs["minx"][0]),
+                        float(qs["miny"][0]),
+                        float(qs["maxx"][0]),
+                        float(qs["maxy"][0]),
+                    )
+                    print(f"[{timestamp}] [API] /api/bhuvan/aoi-stats -> Request for custom bbox {bbox}", flush=True)
+                    stats = fetch_bhuvan_aoi_stats(bbox)
+                else:
+                    print(f"[{timestamp}] [API] /api/bhuvan/aoi-stats -> Request for default Kadwanchi AOI", flush=True)
+                    stats = fetch_bhuvan_aoi_stats()
+                self._respond_json(200, stats)
+            except Exception as e:
+                print(f"[{timestamp}] [API] /api/bhuvan/aoi-stats ERROR: {e}", flush=True)
+                self._respond_json(500, {"error": str(e)})
 
         elif path == "/api/interventions":
             records = read_interventions()
@@ -298,7 +344,14 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 t2_map = results["T2"]["class_map"]
                 t1_date = str(results["T1"]["date"])
                 t2_date = str(results["T2"]["date"])
-                print(f"--> [Pipeline] Real Sentinel-2 scenes acquired & segmented successfully by Model 1 U-Net!", flush=True)
+                t1_source = results["T1"].get("source", "Satellite Ingestion")
+                t2_source = results["T2"].get("source", "Satellite Ingestion")
+                print(f"--> [Pipeline] Ingestion & classification complete: T1={t1_source} | T2={t2_source}", flush=True)
+
+                # Query official ISRO Bhuvan 50k LULC ground truth statistics
+                from data_adapter import fetch_bhuvan_aoi_stats
+                bhuvan_stats = fetch_bhuvan_aoi_stats(bbox)
+                print(f"--> [Bhuvan LULC API] Official 50K baseline retrieved: {bhuvan_stats.get('source', 'Unknown')} ({bhuvan_stats.get('total_sqkm', 0)} km²)", flush=True)
 
                 # Export PNGs to both radius-specific and legacy directory
                 rgb_t1 = colorize(t1_map, CLASS_COLORS)
@@ -413,6 +466,10 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     "key": site_key,
                     "display_name": name,
                     "bbox_wgs84": bbox_wgs84,
+                    "primary_source": t2_source,
+                    "t1_source": t1_source,
+                    "t2_source": t2_source,
+                    "bhuvan_stats": bhuvan_stats,
                     "class_names": {str(k): v for k, v in CLASS_NAMES.items()},
                     "class_colors": {str(k): list(v) for k, v in CLASS_COLORS.items()},
                     "has_change_pair": True,
@@ -461,12 +518,29 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
 
 
 def run():
+    from data_adapter import get_bhuvan_token, find_best_bhoonidhi_scene, BHOONIDHI_DIR
+    bhuvan_token = get_bhuvan_token()
+    bhoonidhi_match = find_best_bhoonidhi_scene()
+    bhoonidhi_count = len(list(BHOONIDHI_DIR.glob("*.zip"))) if BHOONIDHI_DIR.exists() else 0
+
     server = ThreadingHTTPServer((HOST, PORT), WatershedApiHandler)
     server.daemon_threads = True
-    print("=" * 60)
-    print(f"  Watershed Signal Python API running on http://{HOST}:{PORT}")
-    print("  Endpoints: /api/health | /api/interventions | /api/pipeline/run")
-    print("=" * 60)
+    print("=" * 65)
+    print(f"  Watershed Signal Python API Server running on http://{HOST}:{PORT}")
+    print(f"  • Cache Backend    : {cache.backend_name.upper()}")
+    print(f"  • Bhuvan LULC API  : {'CONNECTED (Live Token)' if bhuvan_token else 'OFFLINE (Fallback Active)'}")
+    scene_str = str(bhoonidhi_match[2] if len(bhoonidhi_match) > 2 else bhoonidhi_match[1]) if bhoonidhi_match else 'None'
+    print(f"  • Bhoonidhi Data   : {bhoonidhi_count} scenes in bhoonidhi_data/ (Active: {scene_str[:25]}...)")
+    print(f"  • Model 1 Status   : {'LOADED (' + MODEL1_PATH.name + ')' if MODEL1_PATH.exists() else 'NOT FOUND'}")
+    print("-" * 65)
+    print("  Endpoints:")
+    print("    GET  /api/health")
+    print("    GET  /api/bhuvan/status")
+    print("    GET  /api/bhuvan/aoi-stats")
+    print("    GET  /api/interventions")
+    print("    GET  /api/field-log")
+    print("    POST /api/pipeline/run")
+    print("=" * 65, flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
