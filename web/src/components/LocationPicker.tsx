@@ -213,7 +213,7 @@ export default function LocationPicker({
         <div className="flex items-center gap-2">
           <CalendarBlank size={16} className="text-amber" weight="bold" />
           <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-            — Satellite Acquisition Timeline &amp; Date
+            — Satellite Acquisition Timeline (Month &amp; Year)
           </span>
         </div>
         <span className="font-mono text-xs text-foreground/80">
@@ -222,7 +222,7 @@ export default function LocationPicker({
             {timelineMode === "latest"
               ? "Latest Available Pass"
               : timelineMode === "month"
-              ? `${targetDate} (Single Month/Date)`
+              ? `${targetDate} (Target Month)`
               : `Pair: ${t1Date} (T1) → ${t2Date} (T2)`}
           </strong>
         </span>
@@ -257,7 +257,7 @@ export default function LocationPicker({
               : "border-foreground/15 bg-background text-foreground/80 hover:border-foreground/40 hover:text-foreground"
           )}
         >
-          Target Month / Date...
+          Specific Month &amp; Year...
         </button>
         <button
           type="button"
@@ -272,7 +272,7 @@ export default function LocationPicker({
               : "border-foreground/15 bg-background text-foreground/80 hover:border-foreground/40 hover:text-foreground"
           )}
         >
-          Multi-Temporal Pair (T1 vs T2)...
+          Multi-Temporal Period (T1 &amp; T2 Months)...
         </button>
       </div>
 
@@ -280,7 +280,7 @@ export default function LocationPicker({
         <div className="space-y-3 pt-2 border-t border-foreground/10 animate-fade-up">
           <div className="flex flex-wrap items-center gap-3">
             <label className="font-mono text-xs text-muted-foreground flex items-center gap-2">
-              <span>Target Month:</span>
+              <span>Target Month &amp; Year:</span>
               <input
                 type="month"
                 min="2016-01"
@@ -339,7 +339,7 @@ export default function LocationPicker({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="block font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-                T1 Baseline Timeline (Historical / Pre-Intervention)
+                T1 Baseline Month &amp; Year (Historical Benchmark)
               </label>
               <input
                 type="month"
@@ -353,7 +353,7 @@ export default function LocationPicker({
             </div>
             <div className="space-y-1">
               <label className="block font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-                T2 Assessment Timeline (Recent / Post-Intervention)
+                T2 Assessment Month &amp; Year (Recent Observation)
               </label>
               <input
                 type="month"

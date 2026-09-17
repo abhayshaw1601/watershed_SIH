@@ -33,22 +33,41 @@ Uses free satellite imagery to automatically answer, for any watershed:
 ## 3. Architecture
 
 ```
-Satellite Imagery (6-channel: R,G,B,NIR,NDVI,NDWI)
-        |
-        v
-  Model 1: LULC U-Net  ---->  Land-cover class map (per date)
-        |
-        v
-  Model 2: Siamese Change U-Net  (or Tier-1 rule-based fallback)
-        |
-        v
-  Change type map
-        |
-        v
-  Recommendation Engine (rule-based, NOT ML)
-        |
-        v
-  Alerts + Recommendations + Health Score
+[AOI Query: Lat, Lon, Radius & Month-Year Timeline (YYYY-MM)]
+                         │
+                         ▼
+             [ThreadPoolExecutor (max_workers=3)]
+       ┌─────────────────┼─────────────────┬─────────────────┐
+       ▼                 ▼                 ▼                 ▼
+[Worker 1: T1]    [Worker 2: T2]    [Worker 3: DEM]   [Worker 4: Bhuvan]
+Bhoonidhi/STAC    Bhoonidhi/STAC    GLO-30 Elevation  curl_aoi.php 50K
+4-Band COG Stream 4-Band COG Stream D8 Flow Routing   Official ISRO
+       │                 │                 │          National Baseline
+       ▼                 ▼                 │                 │
+[Model 1: U-Net]  [Model 1: U-Net]         │                 │
+T1 Class Map      T2 Class Map             │                 │
+       │                 │                 │                 │
+       └────────┬────────┘                 │                 │
+                ▼                          │                 │
+      [Tier-1 Change Engine]               │                 │
+      Structural Change Matrix             │                 │
+                │                          │                 │
+                └────────┬─────────────────┘                 │
+                         ▼                                   │
+              [Hydrological Geofencing]                      │
+              Catchment Mask & Drainage                      │
+                         │                                   │
+                         ▼                                   ▼
+             [Multi-Signal Fusion & Alerts]  ←─── [Government Cross-Val]
+             Health Score + 5-Yr NDVI Trend       Tripartite Sign-off
+                         │
+                         ▼
+        [Redis In-Memory Binary & JSON Store]
+        image:*, meta:* — 24h TTL (Zero Disk Pollution)
+                         │
+                         ▼
+             [Next.js 9-Tab Web GIS HUD]
+             /api/images/ Streaming & Print Engine
 ```
 
 **Deliberate design choice:** no ML model outputs "recommendations" directly.
@@ -57,11 +76,14 @@ or adopted by a government official. Two focused, inspectable models feed
 transparent if-then rules instead — every alert traces back to a specific,
 auditable reason.
 
-| Component | Predicts | ML? |
-|---|---|---|
-| Model 1 (U-Net, ResNet18 encoder) | Land-cover class per pixel, single date | Yes |
-| Model 2 (Siamese U-Net) / Tier-1 fallback | Change type per pixel, between two dates | Yes / No (rule-based diff) |
-| Recommendation Engine | Alerts + suggested actions | No — pure rule-based logic |
+| Component | Predicts / Delivers | ML? | Latency |
+|---|---|---|---|
+| Model 1 (U-Net, ResNet18 encoder) | Land-cover class per pixel, single date | Yes | 10.5 ms (GPU) |
+| Model 2 / Tier-1 fallback | Change type per pixel, between two dates | Yes / No (rule-based diff) | < 0.2s |
+| Recommendation Engine | Alerts + suggested actions | No — pure rule-based logic | Instantaneous |
+| Copernicus DEM Engine | Catchment polygon & dendritic stream channels | No — physical D8 flow routing | ~15s |
+| ISRO Bhuvan 50K API | Official government land-cover ground truth | National Survey Vector Database | ~1.2s |
+| Redis In-Memory Store | Binary PNG rasters & JSON metadata streaming | No — RAM caching (24h TTL) | **< 10 ms** (Zero disk writes) |
 
 ## 4. Data sources & Dual-Tier Ingestion Architecture
 
