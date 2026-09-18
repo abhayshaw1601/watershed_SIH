@@ -37,8 +37,11 @@ def img_to_bytes(img: Image.Image, format="PNG") -> bytes:
 
 import csv
 import os
-import dotenv
-dotenv.load_dotenv(PROJECT_ROOT / ".env")
+try:
+    import dotenv
+    dotenv.load_dotenv(PROJECT_ROOT / ".env")
+except ImportError:
+    pass
 
 from config import (
     DATA_PROCESSED, MODELS_DIR, CLASS_NAMES, CLASS_COLORS, CHANGE_CLASS_NAMES,
