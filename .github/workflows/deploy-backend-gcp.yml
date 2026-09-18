@@ -20,6 +20,7 @@ on:
         default: "watershed-backend"
 
 env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   GCP_REGION: ${{ github.event.inputs.gcp_region || vars.GCP_REGION || 'asia-south1' }}
   ARTIFACT_REPO: ${{ vars.GCP_ARTIFACT_REPO || 'watershed-repo' }}
@@ -56,6 +57,28 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Verify Required GCP Secrets
+        run: |
+          MISSING_SECRETS=""
+          if [ -z "${{ secrets.GCP_PROJECT_ID }}" ]; then
+            MISSING_SECRETS="${MISSING_SECRETS} GCP_PROJECT_ID"
+          fi
+          if [ -z "${{ secrets.GCP_SA_KEY }}" ]; then
+            MISSING_SECRETS="${MISSING_SECRETS} GCP_SA_KEY"
+          fi
+          if [ -n "$MISSING_SECRETS" ]; then
+            echo "::error::Missing required GitHub Secrets:${MISSING_SECRETS}"
+            echo ""
+            echo "To fix this error, add these secrets to your GitHub repository:"
+            echo "  1. Go to: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            echo "  2. Click 'New repository secret'"
+            echo "  3. Add 'GCP_PROJECT_ID' with your Google Cloud project ID"
+            echo "  4. Add 'GCP_SA_KEY' with your Service Account JSON key content"
+            echo "  See project/DEPLOYMENT_GCP.md for the step-by-step setup guide."
+            echo ""
+            exit 1
+          fi
 
       - name: Authenticate to Google Cloud
         id: auth
