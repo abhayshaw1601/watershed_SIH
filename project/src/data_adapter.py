@@ -19,13 +19,15 @@ import numpy as np
 import rasterio
 from rasterio.warp import transform_bounds, reproject, Resampling
 from rasterio.windows import from_bounds
-import dotenv
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # Load environment variables
-dotenv.load_dotenv(PROJECT_ROOT / ".env")
+try:
+    import dotenv
+    dotenv.load_dotenv(PROJECT_ROOT / ".env")
+except ImportError:
+    pass
 
 from config import (
     AOI_BBOX, DATA_RAW, DATA_PROCESSED, atomic_raster_write
