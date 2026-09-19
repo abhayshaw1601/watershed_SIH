@@ -12,6 +12,7 @@ WORKDIR /app
 # - ca-certificates: Required for secure SSL/TLS connections to satellite data providers
 # - curl: Required for container healthcheck probe
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    redis-server \
     libgomp1 \
     libexpat1 \
     ca-certificates \
@@ -50,5 +51,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:${PORT}/api/health || exit 1
 
-# Default entrypoint runs the REST API server for Next.js
-CMD ["python", "app/api_server.py"]
+# Default entrypoint starts embedded Redis daemon then runs the REST API server for Next.js
+CMD ["sh", "-c", "redis-server --daemonize yes && python app/api_server.py"]

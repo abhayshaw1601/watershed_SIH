@@ -131,8 +131,11 @@ def clip_scene_to_stack(item, bbox, out_path):
     gdal_env = {
         "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
         "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
-        "GDAL_HTTP_MULTIPLEX": "YES",
-        "GDAL_HTTP_VERSION": "2",
+        "GDAL_HTTP_MULTIPLEX": "NO",
+        "GDAL_HTTP_VERSION": "1.1",
+        "GDAL_HTTP_TIMEOUT": "12",
+        "GDAL_HTTP_CONNECTTIMEOUT": "5",
+        "GDAL_HTTP_MAX_RETRY": "2",
         "GDAL_NUM_THREADS": "ALL_CPUS",
         "VSI_CACHE": "TRUE",
         "VSI_CACHE_SIZE": "50000000",

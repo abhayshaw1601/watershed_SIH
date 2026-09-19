@@ -192,16 +192,23 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
         elif path == "/api/bhuvan/status":
             try:
                 from data_adapter import get_bhuvan_token, find_best_bhoonidhi_scene
+                import mongo_raster_cache as mrc
                 bhuvan_token = get_bhuvan_token()
                 bhoonidhi_match = find_best_bhoonidhi_scene()
                 scene_name = str(bhoonidhi_match[2] if len(bhoonidhi_match) > 2 else bhoonidhi_match[1]) if bhoonidhi_match else None
-                print(f"[{timestamp}] [API] /api/bhuvan/status -> Bhuvan: {'LIVE TOKEN' if bhuvan_token else 'NOT SET'} | Bhoonidhi: {scene_name or 'None'} | Cache: {cache.backend_name.upper()}", flush=True)
+                mongo_ok = mrc._init_mongo()
+                cached_count = mrc._mongo_db.raster_meta.count_documents({}) if mongo_ok else 0
+                bhoonidhi_api_user = os.environ.get("BHOONIDHI_USER", "")
+                print(f"[{timestamp}] [API] /api/bhuvan/status -> Bhuvan: {'LIVE TOKEN' if bhuvan_token else 'NOT SET'} | Bhoonidhi: {scene_name or 'None'} | Mongo: {'CONNECTED (' + str(cached_count) + ' cached)' if mongo_ok else 'OFFLINE'} | Cache: {cache.backend_name.upper()}", flush=True)
                 self._respond_json(200, {
                     "status": "online",
                     "bhuvan_connected": bool(bhuvan_token),
                     "bhuvan_token_configured": bool(bhuvan_token),
-                    "bhoonidhi_active": bool(bhoonidhi_match),
+                    "bhoonidhi_active": bool(bhoonidhi_match or bhoonidhi_api_user),
                     "bhoonidhi_scene": scene_name,
+                    "bhoonidhi_api_configured": bool(bhoonidhi_api_user),
+                    "mongo_cache_active": mongo_ok,
+                    "mongo_cached_rasters": cached_count,
                     "cache_backend": cache.backend_name,
                     "fallback_tier": "AWS S3 Open Data (Copernicus GLO-30 / Sentinel-2 L2A)",
                 })
@@ -237,6 +244,17 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
         elif path == "/api/field-log":
             logs = read_validation_log()
             self._respond_json(200, logs)
+
+        elif path == "/api/audit-logs":
+            try:
+                import mongo_raster_cache as mrc
+                if mrc._init_mongo():
+                    raw_logs = list(mrc._mongo_db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).limit(30))
+                    self._respond_json(200, {"status": "ok", "count": len(raw_logs), "logs": raw_logs})
+                else:
+                    self._respond_json(200, {"status": "offline", "count": 0, "logs": []})
+            except Exception as e:
+                self._respond_json(500, {"error": str(e)})
 
         elif path == "/api/geocode":
             qs = parse_qs(parsed.query)
@@ -397,10 +415,16 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 model, device = get_model()
                 print(f"--> [Pipeline] Querying live Sentinel-2 / Bhoonidhi STAC imagery & running PyTorch Model 1 U-Net on {device}...", flush=True)
 
+                step_logs = []
+                def on_pipeline_step(m):
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    print(f"[{ts}] [PipelineStep] --> {m}", flush=True)
+                    step_logs.append({"time": ts, "message": m})
+
                 (results, change_map, health, trend, alerts,
                  watershed_mask, drainage_network, pour_point, watershed_caveat, watershed_context) = run_pipeline(
                     bbox, site_key, model, device,
-                    on_step=lambda m: print(f"    --> {m}", flush=True),
+                    on_step=on_pipeline_step,
                     t1_target=t1_target,
                     t2_target=t2_target,
                 )
@@ -555,6 +579,7 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     "ndvi_trend": round(float(trend), 4),
                     "alerts": alerts,
                     "radius_km": radius_km,
+                    "pipeline_logs": step_logs,
                     "watershed_caveat": watershed_caveat,
                     "watershed_meta": {
                         "watershed_id": watershed_context.get("watershed_id") if isinstance(watershed_context, dict) else None,

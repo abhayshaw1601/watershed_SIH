@@ -33,6 +33,8 @@ from config import (
     AOI_BBOX, DATA_RAW, DATA_PROCESSED, atomic_raster_write
 )
 from cache_manager import cache
+import mongo_raster_cache as mrc
+from bhoonidhi_client import BhoonidhiClient
 
 BHOONIDHI_DIR = PROJECT_ROOT / "bhoonidhi_data"
 BHOONIDHI_DIR.mkdir(parents=True, exist_ok=True)
@@ -254,6 +256,32 @@ def find_best_bhoonidhi_scene(
     return matches[-1]
 
 
+def format_bhoonidhi_window(date_tag: str, target_date: Optional[str] = None) -> str:
+    """Format RFC3339 datetime interval for Bhoonidhi STAC query."""
+    import calendar
+    if target_date:
+        clean = target_date.strip()
+        try:
+            if len(clean) == 7:  # YYYY-MM
+                y, m = map(int, clean.split("-"))
+                last_d = calendar.monthrange(y, m)[1]
+                return f"{clean}-01T00:00:00Z/{clean}-{last_d:02d}T23:59:59Z"
+            elif len(clean) == 10:  # YYYY-MM-DD
+                from datetime import timedelta
+                d = datetime.strptime(clean, "%Y-%m-%d").date()
+                s_d = d - timedelta(days=30)
+                e_d = d + timedelta(days=30)
+                return f"{s_d}T00:00:00Z/{e_d}T23:59:59Z"
+            elif len(clean) == 4:  # YYYY
+                return f"{clean}-01-01T00:00:00Z/{clean}-12-31T23:59:59Z"
+        except Exception:
+            pass
+
+    if date_tag == "T1":
+        return "2019-11-01T00:00:00Z/2020-03-31T23:59:59Z"
+    return "2024-11-01T00:00:00Z/2025-03-31T23:59:59Z"
+
+
 def load_or_fetch_optical_date(
     bbox: tuple,
     date_tag: str,
@@ -264,17 +292,89 @@ def load_or_fetch_optical_date(
     target_date: Optional[str] = None,
 ) -> Tuple[Any, str]:
     """
-    Unified optical ingestion:
-    1. Primary: If a Bhoonidhi Resourcesat-2A scene covers the bbox, extracts bands
-       via /vsizip/ with zero disk unzipping overhead and builds 6-channel stack.
-    2. Fallback: If outside Bhoonidhi footprint, automatically falls back to AWS S3
-       Sentinel-2 L2A STAC search and streaming using target_date timeline.
+    Unified optical ingestion with Ponytail simplicity:
+    0. Tier 0: Check MongoDB GridFS Clipped Raster Cache (<50ms).
+    1. Tier 1: ISRO Bhoonidhi (local ZIP /vsizip/ or live STAC download within 15s budget).
+    2. Tier 2: Automated AWS S3 Sentinel-2 L2A STAC fallback (4s range reads).
+    All successful fetches are saved to MongoDB GridFS and logged to audit_logs.
     """
+    import time
+    t_start = time.time()
+    fallback_reason = None
+
     def step(m):
         if on_step:
             on_step(m)
 
+    # 0. TIER 0: MongoDB Clipped Raster Cache (<50ms)
+    cached_raster = mrc.get_cached_raster(bbox, date_tag)
+    if cached_raster is not None:
+        stack, source_label, metadata = cached_raster
+        dt_str = metadata.get("date")
+        try:
+            dt = datetime.strptime(dt_str, "%Y-%m-%d").date() if dt_str else datetime.now().date()
+        except Exception:
+            dt = datetime.now().date()
+
+        step(f"[{date_tag}] Serving pre-clipped 6-channel raster from MongoDB GridFS (<50ms)...")
+        minx, miny, maxx, maxy = bbox
+        prof_dict = metadata.get("profile")
+        if prof_dict and "transform" in prof_dict:
+            target_profile = prof_dict.copy()
+        else:
+            from rasterio.transform import from_origin
+            target_profile = {
+                "driver": "GTiff", "height": stack.shape[1], "width": stack.shape[2],
+                "count": 6, "dtype": "float32", "crs": metadata.get("crs", "EPSG:4326"),
+                "transform": from_origin(minx, maxy, (maxx - minx) / stack.shape[2], (maxy - miny) / stack.shape[1]),
+            }
+
+        atomic_raster_write(stack_path, stack, target_profile)
+        four_band = (np.clip(stack[:4], 0.0, 1.0) * 10000.0).astype("uint16")
+        raw_profile = target_profile.copy()
+        raw_profile.update(count=4, dtype="uint16")
+        atomic_raster_write(raw_path, four_band, raw_profile)
+
+        mrc.log_ingestion_audit(
+            action="CACHE_HIT", aoi_name="Watershed", bbox=bbox, date_tag=date_tag,
+            source=source_label, tier=0, latency_s=time.time() - t_start,
+            product_id=metadata.get("product_id"),
+        )
+        return dt, source_label
+
+    # 1. TIER 1: ISRO Bhoonidhi
+    # Check local ZIP cache first
     bhoonidhi_match = find_best_bhoonidhi_scene(bbox, date_tag=date_tag, target_date=target_date)
+
+    # If not found locally, query live Bhoonidhi STAC and download with 15s budget
+    if not bhoonidhi_match and os.environ.get("BHOONIDHI_USER"):
+        try:
+            step(f"[{date_tag}] Searching live ISRO Bhoonidhi STAC catalog (Tier 1)...")
+            client = BhoonidhiClient()
+            dt_window = format_bhoonidhi_window(date_tag, target_date)
+            # Try Surface Reflectance (BOA) then Top of Atmosphere (L2)
+            scenes = client.search_scenes(bbox, dt_window, collection="ResourceSat-2A_LISS3_BOA", limit=5)
+            if not scenes:
+                scenes = client.search_scenes(bbox, dt_window, collection="ResourceSat-2A_LISS3_L2", limit=5)
+
+            if scenes:
+                best_scene = scenes[0]
+                pid = best_scene.get("id")
+                pcol = best_scene.get("collection", "ResourceSat-2A_LISS3_BOA")
+                zip_path = BHOONIDHI_DIR / f"{pid}.zip"
+                step(f"[{date_tag}] Downloading Bhoonidhi scene {pid[:20]}... (15s budget)")
+                try:
+                    client.download_scene_zip(pid, pcol, zip_path, timeout=15.0)
+                    bhoonidhi_match = find_best_bhoonidhi_scene(bbox, date_tag=date_tag, target_date=target_date)
+                except Exception as down_err:
+                    print(f"--> [Bhoonidhi] Live download aborted ({down_err}). Engaging AWS S3 fallback.", flush=True)
+                    fallback_reason = str(down_err)
+            else:
+                fallback_reason = f"No online Bhoonidhi scenes found in window {dt_window}"
+        except Exception as api_err:
+            print(f"--> [Bhoonidhi] API search failed ({api_err}). Engaging AWS S3 fallback.", flush=True)
+            fallback_reason = str(api_err)
+
     if bhoonidhi_match:
         dt, zpath, stem = bhoonidhi_match
         step(f"[{date_tag}] Ingesting ISRO Bhoonidhi Resourcesat-2A LISS-III ({dt}) via /vsizip/...")
@@ -323,9 +423,19 @@ def load_or_fetch_optical_date(
         atomic_raster_write(raw_path, four_band.astype("uint16"), raw_profile)
 
         source_label = f"ISRO Bhoonidhi (Resourcesat-2A LISS-III, {dt})"
+
+        # Save clipped 4MB raster into MongoDB GridFS for sub-50ms repeat reads
+        mrc.save_cached_raster(
+            bbox, date_tag, stack, source_label,
+            metadata={"date": str(dt), "product_id": stem, "crs": str(src_crs)}
+        )
+        mrc.log_ingestion_audit(
+            action="SATELLITE_INGESTION", aoi_name="Watershed", bbox=bbox, date_tag=date_tag,
+            source=source_label, tier=1, latency_s=time.time() - t_start, product_id=stem
+        )
         return dt, source_label
 
-    # Fallback to AWS STAC Sentinel-2
+    # 2. TIER 2: Fallback to AWS STAC Sentinel-2
     from data_download import search_scene, clip_scene_to_stack
     from preprocessing import build_6channel_stack
     import calendar
@@ -357,7 +467,24 @@ def load_or_fetch_optical_date(
     clip_scene_to_stack(item, bbox, raw_path)
     step(f"[{date_tag}] Computing NDVI / NDWI...")
     build_6channel_stack(raw_path, stack_path)
-    source_label = f"Copernicus Sentinel-2 L2A ({dt})"
+    source_label = f"Copernicus Sentinel-2 L2A (AWS S3 Fallback, {dt})"
+
+    # Read the built stack and store in MongoDB GridFS
+    try:
+        with rasterio.open(stack_path) as s_src:
+            s_data = s_src.read()
+            mrc.save_cached_raster(
+                bbox, date_tag, s_data, source_label,
+                metadata={"date": str(dt), "product_id": item.id, "crs": str(s_src.crs)}
+            )
+    except Exception as e:
+        print(f"--> [Adapter] Note: Could not cache S3 raster in Mongo: {e}", flush=True)
+
+    mrc.log_ingestion_audit(
+        action="SATELLITE_INGESTION", aoi_name="Watershed", bbox=bbox, date_tag=date_tag,
+        source=source_label, tier=2, latency_s=time.time() - t_start,
+        product_id=item.id, fallback_reason=fallback_reason
+    )
     return dt, source_label
 
 
