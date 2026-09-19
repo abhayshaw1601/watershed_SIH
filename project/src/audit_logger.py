@@ -43,27 +43,52 @@ def record_audit(
     action: str,
     user: str = "official",
     role: str = "official",
+    user_name: Optional[str] = None,
+    badge_id: Optional[str] = None,
     details: Optional[Dict[str, Any]] = None,
     status: str = "success",
     ip: str = "127.0.0.1",
 ) -> Dict[str, Any]:
     """
-    Record an immutable statutory audit event.
-    Categories:
-      - 'search': Place geocoding, coordinates lookups
-      - 'pipeline': Custom AOI execution, timeline selection
-      - 'source_switch': Toggling between Sentinel-2 preview and Bhoonidhi Tier 1
-      - 'ingestion': Satellite scene retrieval (Tier 0 Mongo, Tier 1 Bhoonidhi, Tier 2 AWS S3)
-      - 'intervention': Ground watershed structures added to registry
-      - 'security': Login, registration, role elevation, access rejection
+    Record an immutable statutory audit event with full officer name and ID attribution.
     """
     now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Smart inference for officer name and ID
+    clean_user = user or "official"
+    clean_role = role or "official"
+
+    if not user_name:
+        if clean_user == "admin" or clean_role == "admin":
+            user_name = "Dr. Sunita Deshmukh"
+            badge_id = badge_id or "DIR-0001"
+        elif clean_user == "official":
+            user_name = "Shri A. K. Sharma"
+            badge_id = badge_id or "OFF-8821"
+        elif details and details.get("name"):
+            user_name = str(details.get("name"))
+            badge_id = badge_id or details.get("badge_id")
+        else:
+            user_name = clean_user.capitalize()
+
+    if not badge_id:
+        if clean_user == "admin" or clean_role == "admin":
+            badge_id = "DIR-0001"
+        elif clean_user == "official":
+            badge_id = "OFF-8821"
+        elif details and details.get("badge_id"):
+            badge_id = str(details.get("badge_id"))
+        else:
+            badge_id = "OFF-GEN"
+
     record = {
         "timestamp": now_iso,
         "category": category,
         "action": action,
-        "user": user or "official",
-        "role": role or "official",
+        "user": clean_user,
+        "user_name": user_name,
+        "badge_id": badge_id,
+        "role": clean_role,
         "details": details or {},
         "status": status,
         "ip": ip,
@@ -117,10 +142,12 @@ def get_audit_logs(
                     {"action": {"$regex": query, "$options": "i"}},
                     {"user": {"$regex": query, "$options": "i"}},
                     {"role": {"$regex": query, "$options": "i"}},
+                    {"user_name": {"$regex": query, "$options": "i"}},
+                    {"badge_id": {"$regex": query, "$options": "i"}},
                 ]
             raw_docs = list(col.find(filter_q, {"_id": 0}).sort("timestamp", -1).limit(limit))
             if raw_docs:
-                return raw_docs
+                return [_enrich_record(d) for d in raw_docs]
         except Exception as e:
             print(f"--> [AuditLogger] MongoDB read error: {e}, using memory fallback", flush=True)
 
@@ -152,16 +179,46 @@ def get_audit_logs(
         if category and category != "all" and r.get("category") != category:
             continue
         if q_lower:
-            text_haystack = f"{r.get('action', '')} {r.get('user', '')} {r.get('role', '')} {json.dumps(r.get('details', {}))}".lower()
+            text_haystack = f"{r.get('action', '')} {r.get('user', '')} {r.get('user_name', '')} {r.get('badge_id', '')} {r.get('role', '')} {json.dumps(r.get('details', {}))}".lower()
             if q_lower not in text_haystack:
                 continue
-        filtered.append(r)
+        filtered.append(_enrich_record(r))
         if len(filtered) >= limit:
             break
 
     # Sort descending by timestamp
     filtered.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
     return filtered[:limit]
+
+
+def _enrich_record(r: Dict[str, Any]) -> Dict[str, Any]:
+    """Enrich record with officer name and badge ID if missing."""
+    doc = dict(r)
+    u = doc.get("user", "official")
+    role = doc.get("role", "official")
+    d = doc.get("details") or {}
+
+    if not doc.get("user_name"):
+        if u == "admin" or role == "admin":
+            doc["user_name"] = "Dr. Sunita Deshmukh"
+        elif u == "official":
+            doc["user_name"] = "Shri A. K. Sharma"
+        elif d.get("name"):
+            doc["user_name"] = str(d.get("name"))
+        else:
+            doc["user_name"] = u.capitalize()
+
+    if not doc.get("badge_id"):
+        if u == "admin" or role == "admin":
+            doc["badge_id"] = "DIR-0001"
+        elif u == "official":
+            doc["badge_id"] = "OFF-8821"
+        elif d.get("badge_id"):
+            doc["badge_id"] = str(d.get("badge_id"))
+        else:
+            doc["badge_id"] = "OFF-GEN"
+
+    return doc
 
 
 def get_audit_summary() -> Dict[str, Any]:

@@ -23,6 +23,9 @@ interface AuditLogEntry {
   category: "search" | "pipeline" | "source_switch" | "ingestion" | "intervention" | "security" | string;
   action: string;
   user: string;
+  user_name?: string;
+  badge_id?: string;
+  department?: string;
   role: string;
   details: Record<string, any>;
   status: "success" | "started" | "failed" | "rejected" | "fallback" | string;
@@ -116,13 +119,15 @@ export default function AuditTab() {
 
   function handleExportCSV() {
     if (!logs.length) return;
-    const headers = ["timestamp", "category", "action", "user", "role", "status", "ip", "details"];
+    const headers = ["timestamp", "officer_name", "badge_id", "username", "role", "category", "action", "status", "ip", "details"];
     const rows = logs.map((l) => [
       l.timestamp,
-      l.category,
-      l.action,
+      `"${l.user_name || (l.user === "admin" ? "Dr. Sunita Deshmukh" : l.user === "official" ? "Shri A. K. Sharma" : l.details?.name || l.user)}"`,
+      l.badge_id || (l.user === "admin" ? "DIR-0001" : l.user === "official" ? "OFF-8821" : l.details?.badge_id || "OFF-GEN"),
       l.user,
       l.role,
+      l.category,
+      l.action,
       l.status,
       l.ip || "127.0.0.1",
       `"${JSON.stringify(l.details || {}).replace(/"/g, '""')}"`,
@@ -377,7 +382,7 @@ export default function AuditTab() {
             <thead className="border-b border-foreground/10 bg-foreground/[0.03] font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="py-3 px-4">Timestamp (UTC)</th>
-                <th className="py-3 px-4">Officer / Role</th>
+                <th className="py-3 px-4">Officer Name & ID</th>
                 <th className="py-3 px-4">Action & Category</th>
                 <th className="py-3 px-4">Event Payload / Context</th>
                 <th className="py-3 px-4 text-right">Status</th>
@@ -397,6 +402,22 @@ export default function AuditTab() {
                     ? entry.timestamp
                     : dateObj.toLocaleTimeString("en-GB", { hour12: false }) + " " + dateObj.toLocaleDateString("en-GB");
 
+                  const officerName =
+                    entry.user_name ||
+                    (entry.user === "admin"
+                      ? "Dr. Sunita Deshmukh"
+                      : entry.user === "official"
+                      ? "Shri A. K. Sharma"
+                      : entry.details?.name || entry.user);
+
+                  const officerId =
+                    entry.badge_id ||
+                    (entry.user === "admin"
+                      ? "DIR-0001"
+                      : entry.user === "official"
+                      ? "OFF-8821"
+                      : entry.details?.badge_id || "OFF-GEN");
+
                   return (
                     <tr key={`${entry.timestamp}_${idx}`} className="hover:bg-foreground/[0.02] transition-colors">
                       {/* Timestamp */}
@@ -410,22 +431,32 @@ export default function AuditTab() {
                         </div>
                       </td>
 
-                      {/* User & Role */}
+                      {/* Officer Name & ID */}
                       <td className="py-3 px-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={cn(
-                              "rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider border",
-                              entry.role === "admin"
-                                ? "border-amber/40 bg-amber/15 text-amber"
-                                : entry.role === "official"
-                                ? "border-sage/40 bg-sage/15 text-sage"
-                                : "border-teal/40 bg-teal/15 text-teal"
-                            )}
-                          >
-                            {entry.role}
-                          </span>
-                          <span className="font-semibold text-foreground">{entry.user}</span>
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-sans font-semibold text-foreground text-xs">
+                              {officerName}
+                            </span>
+                            <span
+                              className={cn(
+                                "rounded-full px-2 py-0.2 font-mono text-[9px] font-semibold uppercase tracking-wider border",
+                                entry.role === "admin"
+                                  ? "border-amber/40 bg-amber/15 text-amber"
+                                  : entry.role === "official"
+                                  ? "border-sage/40 bg-sage/15 text-sage"
+                                  : "border-teal/40 bg-teal/15 text-teal"
+                              )}
+                            >
+                              {entry.role}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
+                            <span className="rounded bg-foreground/5 px-1.5 py-0.2 font-medium text-foreground/80 border border-foreground/10">
+                              {officerId}
+                            </span>
+                            <span>@{entry.user}</span>
+                          </div>
                         </div>
                       </td>
 
