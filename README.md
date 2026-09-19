@@ -70,6 +70,7 @@ No model predicts recommendations directly — that's deliberate. No dataset exi
 | **Worker 3: Topographic Catchment** | Physical watershed boundary & drainage network | Copernicus DEM GLO-30 + PySheds D8 Routing | Overlapped in background (~15s) |
 | **Worker 4: National Ground-Truth** | Official ISRO 1:50k thematic land-cover baseline | Live ISRO Bhuvan REST API (`curl_aoi.php`) | ~1.2s concurrent query |
 | **Model 1: LULC Segmentation** | 7-class pixel classification on 6-channel stack | PyTorch U-Net (ResNet18 backbone) | **10.5 ms** (NVIDIA RTX 3050 CUDA) |
+| **Bhoonidhi Background Daemon** | Asynchronous sovereign LISS-III ingestion ("Clip & Discard") | `BHOONIDHI_JOB_QUEUE` + Ephemeral `/vsizip/` | Background progressive processing |
 | **Tier-1 Change Engine** | Structural change detection (Water gain, degradation) | Topography-Geofenced Rule Matrix | < 0.2s |
 | **Evidence Fusion & Alerts** | Actionable intervention recommendations | Explicit Weighted Multi-Sensor Logic | Instantaneous |
 | **Redis In-Memory Storage** | High-performance raster and metadata delivery | Redis Container (`redis:alpine`) + Python binary cache | **< 10 ms** repeat hits (Zero disk pollution) |
@@ -151,7 +152,7 @@ Open Sentinel-2 / Copernicus GLO-30 / OSM (Automated High-Availability Fallback)
 ## Getting Started
 
 ### 1. Run the Python API Bridge
-The API server exposes REST endpoints (`/api/health`, `/api/pipeline/run`, `/api/pipeline/cancel`, `/api/geocode`, `/api/interventions`, `/api/field-log`, `/api/sites/:siteKey`) on port 8000:
+The API server exposes REST endpoints (`/api/health`, `/api/bhuvan/status`, `/api/bhuvan/aoi-stats`, `/api/audit-logs`, `/api/pipeline/run`, `/api/pipeline/cancel`, `/api/pipeline/bhoonidhi-status`, `/api/pipeline/switch-source`, `/api/geocode`, `/api/interventions`, `/api/field-log`, `/api/sites/:siteKey`) on port 8000:
 
 ```bash
 cd project
@@ -214,6 +215,10 @@ watershed/
 ## Status and Roadmap
 
 - [x] Live location pipeline (Dual-Tier: Bhoonidhi LISS-III / Sentinel-2 STAC + PyTorch GPU U-Net + DEM + health score)
+- [x] Dual-Path Progressive Ingestion & Background Sovereign Daemon (`BHOONIDHI_JOB_QUEUE` + live polling + 1-click source swap)
+- [x] Ephemeral "Clip & Discard" Streaming (`ingest_bhoonidhi_ephemeral` with 0 MB residual disk footprint via `/vsizip/`)
+- [x] Concurrency Semaphore (`BHOONIDHI_SEMAPHORE`) and HTTP 412/429 circuit breaker protection
+- [x] 4-Tier High-Speed Geocoding (0ms curated Indian presets, <1ms Redis cache, strict-timeout OSM Nominatim, Photon fallback)
 - [x] In-Flight Pipeline Cancellation Engine (`POST /api/pipeline/cancel` + interactive search bar button aborting threads in <0.5s)
 - [x] Server-Side Reverse Proxy Geocoding (`GET /api/geocode?q=...`) bypassing browser CORS and forbidden headers for Indian towns/villages
 - [x] Process-isolated atomic raster writes (`atomic_raster_write`) preventing file lock conflicts and partial TIFF corruption

@@ -1222,7 +1222,7 @@ The frontend's **Scientific Validation tab** connects directly to `meta.bhuvan_s
 
 ---
 
-## 17. High-Performance Concurrency, Instant Cancellation & Reliability Hardening (Sep 2026)
+## 17. High-Performance Concurrency, Progressive Ingestion & Reliability Hardening (Sep 2026)
 
 ### 17.1. In-Flight Pipeline Cancellation & Non-Blocking Worker Shutdown
 When operators search or select a new Area of Interest (AOI), previous in-flight multi-sensor downloads and DEM analysis runs could consume server compute and bandwidth if not stopped immediately. 
@@ -1232,24 +1232,39 @@ Watershed Signal implements an end-to-end cooperative cancellation architecture:
 - **Band Ingestion Checkpoints (`data_download.py` & `data_adapter.py`)**: Satellite band fetchers (`fetch_single_band`, `clip_scene_to_stack`, `load_or_fetch_optical_date`) check `cancel_check()` between HTTP chunk reads, instantly aborting GDAL range-reads upon cancellation.
 - **Interactive UI Cancel Button (`LocationPicker.tsx`)**: The primary search button morphs into an animated high-visibility red `[Cancel Analysis ✕]` button while a pipeline is running. Clicking it invokes `handleCancelPipeline()`, immediately restoring search functionality and freeing backend worker threads.
 
-### 17.2. Reverse Proxy Geocoding Engine (`GET /api/geocode`)
-Direct browser queries to OpenStreetMap Nominatim frequently encountered CORS rejections and HTTP 403 Forbidden errors due to browser restrictions against custom `User-Agent` headers.
-- **Dedicated Backend Route**: `GET /api/geocode?q={query}` implemented in `app/api_server.py`.
-- **Compliant Headers**: Injects standard, rate-limit-compliant `User-Agent: WatershedSignal-SIH2026/1.0` headers server-side.
-- **Seamless Frontend Fallback**: `LocationPicker.tsx` queries the backend proxy first, falling back to direct client-side fetch only if the backend is temporarily offline, ensuring 100% reliable place name searching for any Indian village or town (e.g. Santipur, Bira, Kadwanchi).
+### 17.2. 4-Tier High-Speed Geocoding Engine (`aoi_picker.py` & `/api/geocode`)
+Place name queries across India now execute through an ultra-fast 4-tier cascade:
+1. **Tier 1: Curated Indian Location Presets (0ms instant response)**: 20 built-in key watershed locations and metropolitan centres across India (`INDIAN_LOCATION_PRESETS`: Kadwanchi, Nalhati, Kolkata, Pune, Jalna, Tamhini Ghat, Donimalai, Jayakwadi, Hiware Bazar, Ralegan Siddhi, Jamshedpur, Jaipur, Bhopal, Mumbai, Delhi, Bengaluru, Hyderabad, Chennai).
+2. **Tier 2: Redis / In-Memory Cache (<1ms)**: `geocode:{clean_name}` with a 7-day TTL, eliminating repeat network round-trips.
+3. **Tier 3: OpenStreetMap Nominatim with Strict Timeouts**: 2.0s connect and 2.5s read timeouts with compliant server-side User-Agent headers.
+4. **Tier 4: Photon Komoot API Fallback (~1s)**: If Nominatim times out or throttles, the engine automatically falls back to `https://photon.komoot.io/api/`, ensuring 100% search reliability for any Indian village or town.
 
-### 17.3. Atomic Raster Writes & Process-Isolated Scratch Paths
-To eliminate race conditions, file locking errors on Windows/Docker, and raster corruption during rapid successive or aborted queries:
-- **`atomic_raster_write()` (`config.py`)**: Writes arrays to a process-isolated temporary file (`{dest}.tmp.{pid}_{uuid}`) before performing an atomic replace (`shutil.move` / `os.replace`).
-- **UUID-Scoped Scratch Directories**: Intermediate GeoTIFF stacks (`custom_live_{radius}_{hash}_{tag}_*.tif`) use unique random job IDs, preventing cross-worker overwrites.
+### 17.3. Dual-Path Progressive Ingestion & Background Sovereign Daemon
+To eliminate the 15-40 minute download stalls of 500MB ISRO Bhoonidhi full-scene ZIP archives during interactive user searches:
+- **Immediate Sentinel-2 Preview**: The pipeline delivers a full 10m Copernicus Sentinel-2 preview, DEM D8 catchment, and initial Model 1 inference in ~30 seconds, immediately rendering all 9 GIS tabs and diagnostic metrics.
+- **Asynchronous Daemon Queue (`BHOONIDHI_JOB_QUEUE`)**: When an AOI outside local archives is queried, the server enqueues a background job into a dedicated daemon queue.
+- **Background Worker (`_process_bhoonidhi_background_job`)**: Operates in an independent daemon thread, executing ephemeral LISS-III ingestion, Model 1 U-Net classification, change detection, and health score calculation without blocking API responsiveness.
+- **Live Status Polling (`GET /api/pipeline/bhoonidhi-status`)**: The Next.js frontend polls status every 3.5 seconds (`queued` -> `processing` -> `ready` / `unavailable`).
+- **Dynamic UI Sovereign Ready Deck**: Displays an informative amber banner while Bhoonidhi is downloading in the background, and seamlessly transitions to an emerald **"ISRO Bhoonidhi Sovereign Map Output is Ready!"** notification with a 1-click **[Click to View Bhoonidhi Output]** button.
 
-### 17.4. ISRO Bhoonidhi vs. Sentinel-2 Operational Dynamics
-To provide optimal user experience while maintaining compliance with Indian Earth Observation standards:
-- **Pre-warmed LISS-III Archives (`bhoonidhi_data/`)**: Bundles 13 native ISRO Resourcesat-2A LISS-III ZIP scenes covering the primary SIH evaluation watershed (**Kadwanchi / Jalna**, ISRO Path 096/097, Row 058/059). Selecting Kadwanchi triggers instant Tier 1 ingestion via GDAL `/vsizip/` with 0 disk extraction in <2s.
-- **Full-Scene Archive Size Constraint**: ISRO Bhoonidhi STAC distributes satellite data strictly as full-scene archives (200MB to 1.2GB ZIPs) without Cloud-Optimized GeoTIFF (COG) HTTP range-reading support. Downloading 500MB from ISRO servers live during an interactive web search takes 15–40 minutes, which would exceed standard browser 60s HTTP timeouts.
-- **Intelligent Automated Fallback**: For Indian locations outside the pre-warmed archive (e.g. Bira, West Bengal; Santipur; Pune), the system automatically engages Tier 2 (Copernicus Sentinel-2 10m COG streaming on AWS Open Data, ~40-50s) while simultaneously querying official **ISRO Bhuvan 50k LULC** vector statistics for ground truth.
-- **Offline CLI Pre-Warming (`bhoonidhi_prewarm.py`)**: Operators can pre-warm any custom watershed across India in the background:
-  ```bash
-  python src/bhoonidhi_prewarm.py --bbox <minx> <miny> <maxx> <maxy> --name <Watershed_Name>
-  ```
-  This caches the pre-clipped 6-channel raster directly into MongoDB GridFS, giving subsequent web queries instant sub-50ms Tier 0 response times!
+### 17.4. Ephemeral "Clip & Discard" Streaming (`ingest_bhoonidhi_ephemeral`)
+To prevent gigabytes of temporary ZIP archives from filling up container storage:
+- Downloads the candidate Resourcesat-2A LISS-III archive to an ephemeral scratch file.
+- Connects directly to multi-spectral bands via GDAL `/vsizip/` driver to clip *only* the user's bounding box (~4MB 6-channel normalized float32 tensor).
+- Commits the ~4MB raster and statutory audit log directly into **MongoDB GridFS** (`watershed_db.raster_cache`).
+- **Unconditionally unlinks/deletes the full-scene ZIP in a `finally` block**, leaving **0 MB residual disk footprint**.
+
+### 17.5. Concurrency Semaphore & Circuit Breaker Protection (`bhoonidhi_client.py`)
+- **`BHOONIDHI_SEMAPHORE`**: Restricts downloads to **1 concurrent stream** with a 5.0s non-blocking timeout to prevent thread starvation.
+- **Automated Circuit Breaker**: If NRSC returns HTTP 412 (concurrency limit) or HTTP 429 (rate limit), the circuit breaker trips for 900s or 1200s, preventing request storms.
+- **Stream Integrity Verification**: Checks `downloaded >= 0.95 * Content-Length` and validates with `zipfile.is_zipfile()` to prevent corrupt partial archives.
+- **RFC3339 Date Bounding**: Binds T2 STAC query intervals to under 270 days to prevent NRSC HTTP 406 ("Interval cannot exceed 365 days") errors.
+
+### 17.6. Dynamic Source Switching API (`POST /api/pipeline/switch-source`)
+- Allows the user to toggle back and forth between Copernicus Sentinel-2 and ISRO Bhoonidhi sovereign outputs instantly.
+- The server copies the pre-computed `bhoonidhi_*` or `sentinel_*` rasters to active Redis keys and updates active metadata in `<10ms` without re-running model inference.
+- Frontend tabs are uniquely keyed (`key={`${siteKey}_${activeSource}_${sourceVersion}`}`), triggering instantaneous visual re-render of Leaflet layers and class breakdowns upon switching.
+
+### 17.7. Atomic Raster Writes & Driver Registration Hardening (`config.py`)
+- `atomic_raster_write` writes to a PID- and UUID-isolated temporary path (`.tmp.{pid}.{uuid}`) before performing an atomic rename (`shutil.move`), preventing file lock conflicts on Windows and Docker Desktop.
+- Automatically supplies default GTiff driver profiles (`driver="GTiff"`, auto-calculated `count`, `height`, `width`, `dtype`, and `crs="EPSG:4326"`) to prevent GDAL `DriverRegistrationError`.

@@ -138,14 +138,33 @@ python src/bhoonidhi_prewarm.py --bbox 88.3443 22.5546 88.3834 22.5906 --dates T
 - **Online Filter**: Mandatory filter `{"args": [{"property": "Online"}, "Y"], "op": "eq"}` ensures products can be streamed immediately via API.
 - **Catalog 404 Handling**: If NRSC returns HTTP 404 (indicating no catalog coverage for that specific date or region), the client catches it cleanly, checks secondary collections, and falls back to Tier 2 without unhandled exceptions.
 
-#### 15-Second Download Circuit Breaker & Interactive Web Guard
-Live web requests cannot block indefinitely if government servers experience high load or if full-scene archives must be retrieved:
-- ISRO Bhoonidhi STAC distributes satellite data strictly as full-scene archives (200MB to 1.2GB ZIPs) without Cloud-Optimized GeoTIFF (COG) HTTP range-reading support. Transferring a 500MB scene from ISRO servers live takes 15–40 minutes over standard connections.
-- During interactive web requests, `BHOONIDHI_LIVE_DOWNLOAD` is set to `false` by default. If a searched AOI is not already pre-warmed in `bhoonidhi_data/` (or cached in MongoDB GridFS), the system automatically engages Tier 2 (Sentinel-2 10m COG streaming on AWS Open Data, ~40-50s) to guarantee the web UI completes without a 60-second browser timeout.
-- Operators pre-warm any custom watershed across India via `bhoonidhi_prewarm.py` to pre-download the LISS-3 archive and store the clipped raster in MongoDB GridFS for sub-50ms repeat loads.
+#### Dual-Path Progressive Ingestion & Ephemeral "Clip & Discard" Engine
+To solve the conflict between user responsiveness (<40s) and sovereign Indian satellite data compliance (Resourcesat-2A LISS-III scenes are 200MB–1.2GB full-scene ZIP archives):
+1. **Instant Dual-Path Execution**: When an AOI outside local pre-warmed archives is queried, the pipeline returns a high-resolution Copernicus Sentinel-2 L2A preview and DEM hydrological delineation in ~30 seconds, immediately rendering all 9 GIS tabs and diagnostic metrics.
+2. **Background Sovereign Daemon (`BHOONIDHI_JOB_QUEUE`)**: Simultaneously, the server enqueues an asynchronous sovereign background job (`_process_bhoonidhi_background_job`) into a dedicated daemon queue.
+3. **Ephemeral "Clip & Discard" Streaming (`ingest_bhoonidhi_ephemeral`)**:
+   - Downloads the candidate Resourcesat-2A ZIP archive to a temporary scratch path.
+   - Uses GDAL `/vsizip/` virtual file system to extract *only* the requested AOI bounding box (~4MB 6-channel normalized float32 tensor).
+   - Commits the ~4MB tensor and statutory audit log directly into **MongoDB GridFS** (`watershed_db.raster_cache`).
+   - **Unconditionally deletes/unlinks the 200MB+ ZIP in a `finally` block** — leaving **0 MB residual disk clutter**.
+4. **Model 1 U-Net Progressive Inference**: The background worker passes the LISS-III stack through PyTorch Model 1 U-Net, recomputes bi-temporal change matrices, health scores, and NDVI trends, and stores ready rasters in Redis with prefix `bhoonidhi_`.
+5. **Dynamic UI Notification & 1-Click Source Switch**:
+   - The frontend polls `GET /api/pipeline/bhoonidhi-status?site_key=...` every 3.5 seconds.
+   - While downloading, an amber notification displays: *"Your map is being downloaded from ISRO Bhoonidhi. Sentinel-2 preview active below."*
+   - Once ready, an emerald sovereign ready card appears with button: **[🛰️ Click to View Bhoonidhi Output]**.
+   - Clicking it calls `POST /api/pipeline/switch-source`, instantly swapping active Redis rasters and metadata in `<10ms` without re-running models!
+
+#### STAC Query Bounds & Cold-Storage Candidate Handling
+- **HTTP 406 Prevention**: Formats RFC3339 intervals to strictly under 270 days for T2, preventing NRSC STAC API HTTP 406 errors ("Interval cannot exceed 365 days").
+- **Graceful Archive 404 Fallback**: If NRSC returns HTTP 404 on an archived candidate scene, the client catches the error, tests up to 4 alternate candidates in the window, and automatically tests recent online windows (last 270 days) before falling back.
+
+#### Concurrency Semaphore & Circuit Breaker Protection
+- **`BHOONIDHI_SEMAPHORE`**: Enforces a strict maximum of **1 concurrent download** with a 5.0s timeout to prevent thread pool starvation.
+- **Circuit Breaker Pattern**: If NRSC returns HTTP 412 (concurrency limit) or HTTP 429 (rate limit), the circuit breaker trips for 900s or 1200s, preventing request storms.
+- **Archive Stream Validation**: Verifies `Content-Length >= 95%` and runs `zipfile.is_zipfile()` on temporary downloads to eliminate corrupted partial archives.
 
 #### Pre-Warmed Archive Coverage (Kadwanchi / Jalna)
-The system includes 13 verified ISRO Resourcesat-2A LISS-III scenes covering **Kadwanchi / Jalna, Maharashtra** (ISRO Path 096/097, Row 058/059). Searching Kadwanchi immediately uses native Bhoonidhi data via virtual `/vsizip/` streaming in under 2 seconds. For other regions in India (such as West Bengal, Karnataka, or Rajasthan), the automatic failover provides instant high-resolution analysis while cross-referencing live ISRO Bhuvan 50k vector ground truth.
+The system includes 13 verified ISRO Resourcesat-2A LISS-III scenes covering **Kadwanchi / Jalna, Maharashtra** (ISRO Path 096/097, Row 058/059). Searching Kadwanchi immediately uses native Bhoonidhi data via virtual `/vsizip/` streaming in under 2 seconds. For other regions in India (such as West Bengal, Karnataka, or Rajasthan), the progressive failover provides instant preview while retrieving native sovereign data in the background.
 
 #### Zero-Extraction Virtual Raster Streaming (`/vsizip/`)
 For preloaded or downloaded Bhoonidhi archives:
@@ -225,9 +244,12 @@ Traditional geospatial web applications save rendered PNG overlays and intermedi
 | `/api/bhuvan/status` | `GET` | Live status of Bhuvan token, Bhoonidhi credentials, and MongoDB connection | `200 OK` (< 10ms) |
 | `/api/bhuvan/aoi-stats` | `GET` | Official ISRO 1:50k LULC area breakdown for any bbox (`minx,miny,maxx,maxy`) | `200 OK` (~1.2s) |
 | `/api/audit-logs` | `GET` | Statutory ingestion audit trail from MongoDB (`watershed_db.audit_logs`) | `200 OK` (< 25ms) |
-| `/api/geocode` | `GET` | Server-side reverse proxy geocoding with custom User-Agent (`q=...`) | `200 OK` (< 400ms) |
-| `/api/pipeline/run` | `POST` | Full pipeline execution (`lat`, `lon`, `radius_km`, `t1_date`, `t2_date`) | `200 OK` (Live telemetry) |
+| `/api/geocode` | `GET` | 4-Tier reverse proxy geocoding (Preset dict -> Redis -> Nominatim -> Photon) | `200 OK` (< 400ms) |
+| `/api/pipeline/run` | `POST` | Full pipeline execution with automated dual-path progressive ingestion | `200 OK` (Live telemetry) |
 | `/api/pipeline/cancel` | `POST` | Immediate in-flight pipeline cancellation and thread pool shutdown | `200 OK` (< 0.5s) |
+| `/api/pipeline/bhoonidhi-status` | `GET` | Polling endpoint for background Bhoonidhi daemon (`site_key=...`) | `200 OK` (< 5ms) |
+| `/api/pipeline/switch-source` | `POST` | Dynamic 1-click toggle between Sentinel-2 preview and Bhoonidhi outputs | `200 OK` (< 10ms) |
+| `/api/sites/{site}` | `GET` | Site metadata retrieval with optional `?source=bhoonidhi\|sentinel` filter | `200 OK` (< 5ms) |
 | `/api/images/{site}/{img}` | `GET` | Direct streaming of classified rasters and overlays from Redis RAM | `200 OK` (< 10ms) |
 
 ---
