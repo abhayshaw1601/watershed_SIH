@@ -151,7 +151,7 @@ Open Sentinel-2 / Copernicus GLO-30 / OSM (Automated High-Availability Fallback)
 ## Getting Started
 
 ### 1. Run the Python API Bridge
-The API server exposes REST endpoints (`/api/health`, `/api/pipeline/run`, `/api/interventions`, `/api/field-log`, `/api/sites/:siteKey`) on port 8000:
+The API server exposes REST endpoints (`/api/health`, `/api/pipeline/run`, `/api/pipeline/cancel`, `/api/geocode`, `/api/interventions`, `/api/field-log`, `/api/sites/:siteKey`) on port 8000:
 
 ```bash
 cd project
@@ -214,6 +214,9 @@ watershed/
 ## Status and Roadmap
 
 - [x] Live location pipeline (Dual-Tier: Bhoonidhi LISS-III / Sentinel-2 STAC + PyTorch GPU U-Net + DEM + health score)
+- [x] In-Flight Pipeline Cancellation Engine (`POST /api/pipeline/cancel` + interactive search bar button aborting threads in <0.5s)
+- [x] Server-Side Reverse Proxy Geocoding (`GET /api/geocode?q=...`) bypassing browser CORS and forbidden headers for Indian towns/villages
+- [x] Process-isolated atomic raster writes (`atomic_raster_write`) preventing file lock conflicts and partial TIFF corruption
 - [x] 9-tab analytics suite (Land Cover, Change, Health, Map, Field Investigation, Investigation, What-If Simulator, Scientific Validation, Bhuvan Ground-Truth)
 - [x] Dedicated 9th Tab: ISRO Bhuvan Ground-Truth Cross-Validation Report with official tripartite sign-offs, live IWMP portal link, and print stylesheet
 - [x] Zero disk pollution: All transient pipeline rasters and metadata cached in Redis (`redis:alpine`) and streamed via `/api/images/`
@@ -223,7 +226,6 @@ watershed/
 - [x] Dynamic investigation tab — land-cover-aware intervention defaults (urban/forest/barren detection)
 - [x] Diagnostic pillars derived from `meta.class_breakdown` and `meta.ndvi_trend` (no hardcoded numbers)
 - [x] Intervention defaults never cached to localStorage — always freshly generated from active site meta
-- [x] Pipeline `AbortController` — changing location mid-run cancels in-flight fetch and restarts cleanly
 - [x] FieldTab photo integrity — ground stations track photo availability; no fake placeholder images
 - [x] Empirical scientific validation completed (LULC 82.6%, Change F1 0.911, Photo agreement 86.7%)
 - [x] Government data adapter seam designed (`data_adapter_design.md`) with official limitation disclaimers

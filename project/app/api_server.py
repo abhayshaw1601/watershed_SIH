@@ -10,6 +10,8 @@ Runs with:
 import io
 import json
 import sys
+import threading
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone
@@ -75,6 +77,9 @@ WEB_DEMO_DIR = PROJECT_ROOT.parent / "web" / "public" / "demo-data"
 # Global cached model
 _cached_model = None
 _cached_device = None
+
+ACTIVE_PIPELINES: dict = {}
+PIPELINE_LOCK = threading.Lock()
 
 CHANGE_CLASS_COLORS = {
     0: (230, 230, 230),
@@ -375,15 +380,33 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
             iv_id = reg.add_intervention(name, type_, float(lat), float(lon), notes)
             self._respond_json(201, {"id": iv_id, "status": "created"})
 
+        elif path == "/api/pipeline/cancel":
+            run_id = payload.get("run_id")
+            with PIPELINE_LOCK:
+                if run_id and run_id in ACTIVE_PIPELINES:
+                    ACTIVE_PIPELINES[run_id].set()
+                    print(f"--> [Pipeline] Dispatched cancellation signal for run '{run_id}'", flush=True)
+                else:
+                    for rid, ev in list(ACTIVE_PIPELINES.items()):
+                        ev.set()
+                        print(f"--> [Pipeline] Flagged active run '{rid}' for cancellation", flush=True)
+            self._respond_json(200, {"status": "ok", "message": "Cancellation registered"})
+            return
+
         elif path == "/api/pipeline/run":
             lat = payload.get("lat")
             lon = payload.get("lon")
             name = payload.get("name", "Custom Location")
             radius_km = float(payload.get("radius_km", 2.0))
+            run_id = payload.get("run_id") or f"run_{int(time.time()*1000)}"
 
             if lat is None or lon is None:
                 self._respond_json(400, {"error": "Missing lat or lon"})
                 return
+
+            cancel_ev = threading.Event()
+            with PIPELINE_LOCK:
+                ACTIVE_PIPELINES[run_id] = cancel_ev
 
             try:
                 lat = float(lat)
@@ -397,7 +420,7 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 bbox = bbox_around(lat, lon, radius_km)
 
                 print(f"\n=======================================================")
-                print(f"--> [Pipeline] INCOMING REQUEST for '{name}' at ({lat:.4f}, {lon:.4f}) with radius {radius_km:.1f} km")
+                print(f"--> [Pipeline] INCOMING REQUEST [{run_id}] for '{name}' at ({lat:.4f}, {lon:.4f}) with radius {radius_km:.1f} km")
                 print(f"--> [Pipeline] Timeline Preference: T1={t1_target or 'default'} | T2={t2_target or 'default'}")
                 print(f"--> [Pipeline] Bounding Box: {bbox}")
 
@@ -427,6 +450,7 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     on_step=on_pipeline_step,
                     t1_target=t1_target,
                     t2_target=t2_target,
+                    cancel_check=cancel_ev,
                 )
 
                 t1_map = results["T1"]["class_map"]
@@ -600,9 +624,15 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 print(f"=======================================================\n")
                 self._respond_json(200, {"status": "ok", "siteKey": site_key, "meta": meta})
 
+            except InterruptedError as e:
+                print(f"--> [Pipeline] Run '{run_id}' safely aborted: {e}", flush=True)
+                self._respond_json(200, {"status": "cancelled", "message": "Pipeline run was cancelled by user"})
             except Exception as e:
                 traceback.print_exc()
                 self._respond_json(500, {"error": f"Pipeline execution failed: {str(e)}"})
+            finally:
+                with PIPELINE_LOCK:
+                    ACTIVE_PIPELINES.pop(run_id, None)
 
         else:
             self._respond_json(404, {"error": f"Endpoint '{path}' not found"})
@@ -629,7 +659,8 @@ def run():
     print(f"  • Bhuvan LULC API  : {'CONNECTED (Live Token)' if bhuvan_token else 'OFFLINE (Fallback Active)'}")
     scene_str = str(bhoonidhi_match[2] if len(bhoonidhi_match) > 2 else bhoonidhi_match[1]) if bhoonidhi_match else 'None'
     print(f"  • Bhoonidhi Data   : {bhoonidhi_count} scenes in bhoonidhi_data/ (Active: {scene_str[:25]}...)")
-    print(f"  • Model 1 Status   : {'LOADED (' + MODEL1_PATH.name + ')' if MODEL1_PATH.exists() else 'NOT FOUND'}")
+    model, device = get_model()
+    print(f"  • Model 1 Status   : LOADED on {device} ({MODEL1_PATH.name})")
     print("-" * 65)
     print("  Endpoints:")
     print("    GET  /api/health")
@@ -638,6 +669,7 @@ def run():
     print("    GET  /api/interventions")
     print("    GET  /api/field-log")
     print("    POST /api/pipeline/run")
+    print("    POST /api/pipeline/cancel")
     print("=" * 65, flush=True)
     try:
         server.serve_forever()

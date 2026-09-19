@@ -53,6 +53,8 @@ export default function WatershedApp() {
     duration: number;
     timestamp: string;
   } | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   const [meta, setMeta] = useState<SiteMeta | null>(null);
   const [tab, setTab] = useState<TabKey>("land-cover");
   const [loading, setLoading] = useState(false);
@@ -71,6 +73,25 @@ export default function WatershedApp() {
     return () => clearInterval(timer);
   }, [isAnalyzing]);
 
+  function handleCancelPipeline() {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    if (activeRunId) {
+      fetch(`${API_BASE_URL}/api/pipeline/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: activeRunId }),
+      }).catch(() => {});
+    }
+    setIsAnalyzing(false);
+    setLoading(false);
+    setLoadError(null);
+    setCancelNotice("Pipeline analysis was cancelled by user.");
+    setTimeout(() => setCancelNotice(null), 6000);
+  }
+
   async function handleRunCustomPipeline(loc: CustomLocation) {
     // Cancel any in-flight pipeline run before starting a new one
     if (abortRef.current) {
@@ -78,6 +99,10 @@ export default function WatershedApp() {
     }
     const controller = new AbortController();
     abortRef.current = controller;
+
+    const runId = "run_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+    setActiveRunId(runId);
+    setCancelNotice(null);
 
     setCustomLocation(loc);
     setIsAnalyzing(true);
@@ -92,6 +117,7 @@ export default function WatershedApp() {
         signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          run_id: runId,
           lat: loc.lat,
           lon: loc.lon,
           name: loc.name,
@@ -108,6 +134,11 @@ export default function WatershedApp() {
       }
 
       const data = await res.json();
+      if (data.status === "cancelled") {
+        setIsAnalyzing(false);
+        setLoading(false);
+        return;
+      }
       if (data.meta) {
         const totalDuration = Math.round((Date.now() - startTime) / 1000);
         setSiteKey(data.siteKey || "custom_live");
@@ -122,7 +153,11 @@ export default function WatershedApp() {
         return;
       }
     } catch (err) {
-      if ((err as Error).name === "AbortError") return; // Silently discard cancelled requests
+      if ((err as Error).name === "AbortError") {
+        setIsAnalyzing(false);
+        setLoading(false);
+        return;
+      }
       console.error("Live server execution failed:", err);
       setIsAnalyzing(false);
       setLoadError(err instanceof Error ? err.message : String(err));
@@ -260,11 +295,30 @@ export default function WatershedApp() {
       <div className="mt-8 rounded-2xl border border-foreground/10 bg-foreground/2 p-5 sm:p-6 shadow-sm">
         <LocationPicker
           customLocation={customLocation}
+          isAnalyzing={isAnalyzing}
           onSelectCustom={(loc) => {
             handleRunCustomPipeline(loc);
           }}
+          onCancel={handleCancelPipeline}
         />
       </div>
+
+      {/* ---- Cancellation Notice Banner ---- */}
+      {cancelNotice && !isAnalyzing && (
+        <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-amber/40 bg-amber/10 px-5 py-3.5 shadow-sm text-sm font-mono text-foreground animate-fade-up">
+          <div className="flex items-center gap-2.5">
+            <span className="text-amber text-base">⚠️</span>
+            <span>{cancelNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCancelNotice(null)}
+            className="text-xs text-muted-foreground hover:text-foreground cursor-pointer rounded-md border border-foreground/10 px-2.5 py-1"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* ---- Live Pipeline Progress Banner (Working Animation) ---- */}
       {isAnalyzing && (
@@ -290,7 +344,7 @@ export default function WatershedApp() {
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3.5">
               <div className="text-right">
                 <span className="block font-mono text-sm font-semibold text-amber">
                   T+{elapsedSeconds}s
@@ -299,6 +353,17 @@ export default function WatershedApp() {
                   Expected ~{(customLocation?.radiusKm || 2.0) > 3.0 ? "35-50s (larger radius)" : "20-30s"}
                 </span>
               </div>
+
+              {/* High-visibility Cancel Button */}
+              <button
+                type="button"
+                onClick={handleCancelPipeline}
+                className="flex items-center gap-1.5 rounded-xl border border-red-500/50 bg-red-500/10 hover:bg-red-500/25 text-red-500 hover:text-red-400 px-3.5 py-2 font-mono text-xs font-semibold transition-all cursor-pointer shadow-xs active:scale-95"
+                title="Cancel ongoing satellite ingestion and pipeline execution"
+              >
+                <X size={15} weight="bold" />
+                <span>Cancel Analysis</span>
+              </button>
             </div>
           </div>
 
@@ -427,14 +492,29 @@ export default function WatershedApp() {
       {/* ---- Tab content ---- */}
       <div className="mt-8 rounded-2xl border border-foreground/10 bg-background/60 p-6 sm:p-8 shadow-sm min-h-125">
         {loadError ? (
-          <div className="rounded-2xl border border-foreground/10 p-10 text-center">
-            <p className="text-sm text-muted-foreground">Couldn&apos;t load demo data: {loadError}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-4 rounded-full border border-foreground/15 px-5 py-2.5 text-sm hover:border-foreground/40"
-            >
-              Retry
-            </button>
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-10 text-center">
+            <p className="text-sm font-mono text-red-400">Analysis pipeline encountered an error:</p>
+            <p className="mt-2 text-xs font-mono text-muted-foreground max-w-lg mx-auto bg-background/60 p-3 rounded-xl border border-foreground/10">
+              {loadError}
+            </p>
+            <div className="mt-5 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setLoadError(null)}
+                className="rounded-xl border border-foreground/20 px-4 py-2 font-mono text-xs text-foreground/80 hover:text-foreground hover:border-foreground/40 transition-colors cursor-pointer"
+              >
+                Dismiss Notice
+              </button>
+              {customLocation && (
+                <button
+                  type="button"
+                  onClick={() => handleRunCustomPipeline(customLocation)}
+                  className="rounded-xl bg-amber text-black font-semibold px-4 py-2 font-mono text-xs hover:bg-amber/90 transition-colors cursor-pointer shadow-xs"
+                >
+                  Retry Analysis →
+                </button>
+              )}
+            </div>
           </div>
         ) : isAnalyzing || loading ? (
           <div className="relative overflow-hidden rounded-2xl border border-foreground/10 bg-background/50 p-12 text-center">
@@ -469,6 +549,18 @@ export default function WatershedApp() {
               <p className="mt-2 font-mono text-xs text-muted-foreground">
                 Stage {currentStage.step}/4: {currentStage.label} — {currentStage.detail}
               </p>
+
+              <div className="mt-5">
+                <button
+                  type="button"
+                  onClick={handleCancelPipeline}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/50 bg-red-500/10 hover:bg-red-500/25 text-red-500 hover:text-red-400 px-4 py-2 font-mono text-xs font-semibold transition-all cursor-pointer shadow-xs active:scale-95"
+                  title="Cancel this analysis run immediately"
+                >
+                  <X size={15} weight="bold" />
+                  <span>Cancel Ongoing Analysis</span>
+                </button>
+              </div>
             </div>
           </div>
         ) : !meta ? (

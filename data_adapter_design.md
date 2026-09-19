@@ -138,10 +138,14 @@ python src/bhoonidhi_prewarm.py --bbox 88.3443 22.5546 88.3834 22.5906 --dates T
 - **Online Filter**: Mandatory filter `{"args": [{"property": "Online"}, "Y"], "op": "eq"}` ensures products can be streamed immediately via API.
 - **Catalog 404 Handling**: If NRSC returns HTTP 404 (indicating no catalog coverage for that specific date or region), the client catches it cleanly, checks secondary collections, and falls back to Tier 2 without unhandled exceptions.
 
-#### 15-Second Download Circuit Breaker
-Live web requests cannot block indefinitely if government servers experience high load. When downloading a scene from Bhoonidhi (`/bhoonidhi-api/download`):
-- A strict **15.0-second time budget** is enforced.
-- If chunk transfer exceeds 15 seconds, the temporary download is purged and the system automatically engages Tier 2 (AWS S3) fallback.
+#### 15-Second Download Circuit Breaker & Interactive Web Guard
+Live web requests cannot block indefinitely if government servers experience high load or if full-scene archives must be retrieved:
+- ISRO Bhoonidhi STAC distributes satellite data strictly as full-scene archives (200MB to 1.2GB ZIPs) without Cloud-Optimized GeoTIFF (COG) HTTP range-reading support. Transferring a 500MB scene from ISRO servers live takes 15–40 minutes over standard connections.
+- During interactive web requests, `BHOONIDHI_LIVE_DOWNLOAD` is set to `false` by default. If a searched AOI is not already pre-warmed in `bhoonidhi_data/` (or cached in MongoDB GridFS), the system automatically engages Tier 2 (Sentinel-2 10m COG streaming on AWS Open Data, ~40-50s) to guarantee the web UI completes without a 60-second browser timeout.
+- Operators pre-warm any custom watershed across India via `bhoonidhi_prewarm.py` to pre-download the LISS-3 archive and store the clipped raster in MongoDB GridFS for sub-50ms repeat loads.
+
+#### Pre-Warmed Archive Coverage (Kadwanchi / Jalna)
+The system includes 13 verified ISRO Resourcesat-2A LISS-III scenes covering **Kadwanchi / Jalna, Maharashtra** (ISRO Path 096/097, Row 058/059). Searching Kadwanchi immediately uses native Bhoonidhi data via virtual `/vsizip/` streaming in under 2 seconds. For other regions in India (such as West Bengal, Karnataka, or Rajasthan), the automatic failover provides instant high-resolution analysis while cross-referencing live ISRO Bhuvan 50k vector ground truth.
 
 #### Zero-Extraction Virtual Raster Streaming (`/vsizip/`)
 For preloaded or downloaded Bhoonidhi archives:
@@ -221,7 +225,9 @@ Traditional geospatial web applications save rendered PNG overlays and intermedi
 | `/api/bhuvan/status` | `GET` | Live status of Bhuvan token, Bhoonidhi credentials, and MongoDB connection | `200 OK` (< 10ms) |
 | `/api/bhuvan/aoi-stats` | `GET` | Official ISRO 1:50k LULC area breakdown for any bbox (`minx,miny,maxx,maxy`) | `200 OK` (~1.2s) |
 | `/api/audit-logs` | `GET` | Statutory ingestion audit trail from MongoDB (`watershed_db.audit_logs`) | `200 OK` (< 25ms) |
+| `/api/geocode` | `GET` | Server-side reverse proxy geocoding with custom User-Agent (`q=...`) | `200 OK` (< 400ms) |
 | `/api/pipeline/run` | `POST` | Full pipeline execution (`lat`, `lon`, `radius_km`, `t1_date`, `t2_date`) | `200 OK` (Live telemetry) |
+| `/api/pipeline/cancel` | `POST` | Immediate in-flight pipeline cancellation and thread pool shutdown | `200 OK` (< 0.5s) |
 | `/api/images/{site}/{img}` | `GET` | Direct streaming of classified rasters and overlays from Redis RAM | `200 OK` (< 10ms) |
 
 ---

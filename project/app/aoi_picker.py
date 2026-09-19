@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -100,31 +101,46 @@ def bbox_around(lat: float, lon: float, half_km: float = HALF_KM):
     return (lon - dlon, lat - dlat, lon + dlon, lat + dlat)
 
 
-def run_pipeline(bbox, label: str, model, device, on_step=None, t1_target=None, t2_target=None):
+import uuid
+
+
+def run_pipeline(bbox, label: str, model, device, on_step=None, t1_target=None, t2_target=None, cancel_check=None):
     """Fetch T1+T2, build stacks, run Model 1 + Tier-1 change detection in parallel.
 
     Uses ThreadPoolExecutor to concurrently:
       1. Search, stream bands, build 6-channel stack, and infer for T1 (using t1_target timeline).
       2. Search, stream bands, build 6-channel stack, and infer for T2 (using t2_target timeline).
       3. Stream Copernicus DEM, compute flow directions and catchment delineation.
-    This reduces total pipeline wall-clock time by ~2-3x.
+    Uses an isolated run UUID so concurrent requests never collide on scratch rasters.
     """
+    def check_cancelled():
+        if cancel_check and (cancel_check() if callable(cancel_check) else cancel_check.is_set()):
+            raise InterruptedError("Pipeline execution cancelled by client")
+
     def step(msg):
+        check_cancelled()
         if on_step:
             on_step(msg)
 
     step("Launching multi-sensor ingestion (ISRO Bhoonidhi / Sentinel-2) + DEM hydrological analysis...")
 
+    scratch_id = uuid.uuid4().hex[:8]
+    created_scratch_files = []
+
     def process_date(date_tag: str):
+        check_cancelled()
         from data_adapter import load_or_fetch_optical_date
-        raw_path = LIVE_DIR / f"{label}_{date_tag}_rgbnir.tif"
-        stack_path = LIVE_DIR / f"{label}_{date_tag}_stack6.tif"
+        raw_path = LIVE_DIR / f"{label}_{scratch_id}_{date_tag}_rgbnir.tif"
+        stack_path = LIVE_DIR / f"{label}_{scratch_id}_{date_tag}_stack6.tif"
+        created_scratch_files.extend([raw_path, stack_path])
         target_d = t1_target if date_tag == "T1" else t2_target
         date_obj, source_label = load_or_fetch_optical_date(
-            bbox, date_tag, raw_path, stack_path, on_step=step, target_date=target_d
+            bbox, date_tag, raw_path, stack_path, on_step=step, target_date=target_d, cancel_check=cancel_check
         )
+        check_cancelled()
         step(f"[{date_tag}] Running land-cover model...")
         with _model_lock:
+            check_cancelled()
             class_map, img, profile = predict_class_map(model, stack_path, device)
         return date_tag, {
             "class_map": class_map,
@@ -135,6 +151,7 @@ def run_pipeline(bbox, label: str, model, device, on_step=None, t1_target=None, 
         }
 
     def process_dem():
+        check_cancelled()
         if delineate_watershed_raw is None:
             return None, (
                 f"Watershed boundary unavailable ({_watershed_import_error}) -- "
@@ -142,7 +159,9 @@ def run_pipeline(bbox, label: str, model, device, on_step=None, t1_target=None, 
             )
         try:
             step("[DEM] Delineating watershed boundary & drainage network from Copernicus 30m DEM...")
+            check_cancelled()
             raw = delineate_watershed_raw(bbox)
+            check_cancelled()
             return raw, None
         except Exception as e:
             return None, f"Watershed boundary unavailable this run ({e}) -- change detection not geofenced."
@@ -151,40 +170,65 @@ def run_pipeline(bbox, label: str, model, device, on_step=None, t1_target=None, 
     dem_raw = None
     watershed_caveat = None
 
-    # Run T1, T2, and DEM in parallel worker threads
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    try:
+        # Run T1, T2, and DEM in parallel worker threads with instant cancellation polling
+        pool = ThreadPoolExecutor(max_workers=3)
         future_t1 = pool.submit(process_date, "T1")
         future_t2 = pool.submit(process_date, "T2")
         future_dem = pool.submit(process_dem)
+        all_futures = [future_t1, future_t2, future_dem]
 
-        tag1, res1 = future_t1.result()
-        results[tag1] = res1
-        tag2, res2 = future_t2.result()
-        results[tag2] = res2
-        dem_raw, dem_err = future_dem.result()
-
-    watershed_mask = drainage_network = pour_point = watershed_context = None
-    if dem_err:
-        watershed_caveat = dem_err
-    elif dem_raw is not None and align_watershed_to_target is not None:
         try:
-            watershed_context = align_watershed_to_target(dem_raw, results["T2"]["profile"])
-            watershed_mask = watershed_context["watershed_mask"]
-            drainage_network = watershed_context["drainage_network"]
-            pour_point = watershed_context["pour_point"]
-            watershed_caveat = watershed_context["caveat"]
-        except Exception as e:
-            watershed_caveat = f"Watershed alignment error ({e}) -- change detection not geofenced."
+            # Poll every 100ms so cancellation unblocks the server instantaneously!
+            while not all(f.done() for f in all_futures):
+                check_cancelled()
+                time.sleep(0.1)
 
-    step("Comparing T1 vs T2 for changes...")
-    change_map = run_tier1(results["T1"]["class_map"], results["T2"]["class_map"], watershed_mask=watershed_mask)
-    step("Computing health score & NDVI trend...")
-    health = compute_health_score(results["T2"]["class_map"])
-    trend = ndvi_trend(results["T1"]["img"], results["T2"]["img"])
-    step("Generating alerts & recommendations...")
-    alerts = generate_alerts(results["T2"]["class_map"], change_map, health, trend)
-    return (results, change_map, health, trend, alerts,
-            watershed_mask, drainage_network, pour_point, watershed_caveat, watershed_context)
+            check_cancelled()
+            tag1, res1 = future_t1.result()
+            results[tag1] = res1
+            tag2, res2 = future_t2.result()
+            results[tag2] = res2
+            dem_raw, dem_err = future_dem.result()
+        except InterruptedError:
+            print(f"--> [Pipeline] Immediate pool shutdown triggered by cancellation.", flush=True)
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
+        else:
+            pool.shutdown(wait=True)
+
+        check_cancelled()
+
+        watershed_mask = drainage_network = pour_point = watershed_context = None
+        if dem_err:
+            watershed_caveat = dem_err
+        elif dem_raw is not None and align_watershed_to_target is not None:
+            try:
+                watershed_context = align_watershed_to_target(dem_raw, results["T2"]["profile"])
+                watershed_mask = watershed_context["watershed_mask"]
+                drainage_network = watershed_context["drainage_network"]
+                pour_point = watershed_context["pour_point"]
+                watershed_caveat = watershed_context["caveat"]
+            except Exception as e:
+                watershed_caveat = f"Watershed alignment error ({e}) -- change detection not geofenced."
+
+        check_cancelled()
+        step("Comparing T1 vs T2 for changes...")
+        change_map = run_tier1(results["T1"]["class_map"], results["T2"]["class_map"], watershed_mask=watershed_mask)
+        step("Computing health score & NDVI trend...")
+        health = compute_health_score(results["T2"]["class_map"])
+        trend = ndvi_trend(results["T1"]["img"], results["T2"]["img"])
+        step("Generating alerts & recommendations...")
+        alerts = generate_alerts(results["T2"]["class_map"], change_map, health, trend)
+        return (results, change_map, health, trend, alerts,
+                watershed_mask, drainage_network, pour_point, watershed_caveat, watershed_context)
+    finally:
+        # Clean up transient scratch rasters on disk (GridFS and Redis hold cached copies)
+        for p in created_scratch_files:
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def _set_active_aoi(key, display_name, lat, lon, trained, model, device, half_km: float = 1.0):

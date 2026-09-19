@@ -104,26 +104,17 @@ def search_scene(bbox, date_tag, max_cloud=20, limit=30, custom_window=None):
     return pool[0]
 
 
-def clip_scene_to_stack(item, bbox, out_path):
+def clip_scene_to_stack(item, bbox, out_path, cancel_check=None):
     """Read R,G,B,NIR bands (10m) for one STAC item, clip to bbox, stack, save.
-
-    Always produces an array sized to the FULL requested bbox, regardless of
-    how much of it the matched scene's own footprint actually covers. Real
-    bug this guards against: search_scene picks the lowest-cloud match
-    without checking full-bbox coverage, and a scene whose footprint only
-    partially overlaps the AOI is a real, observed case (confirmed for
-    Kadwanchi's own primary AOI: the matched T1 scene's northern edge fell
-    ~3.3km short of AOI_BBOX's requested northern edge). The previous
-    rio_mask(..., crop=True) approach silently returned a SMALLER array in
-    that case -- not nodata pixels within a correctly-sized array, an
-    actually truncated shape, which nothing downstream could detect (unlike
-    the NODATA_CLASS sentinel, which only catches missing coverage that
-    shows up as real zero-valued pixels inside an otherwise correctly-sized
-    read). Reprojecting into a pre-sized destination array (same CRS, so
-    this is a resample/pad, not a real reprojection) makes any uncovered
-    area fall out as legitimate zero/nodata pixels instead, which
-    NODATA_CLASS already handles correctly everywhere downstream."""
+    Supports cancel_check to immediately abort network streaming when cancelled.
+    """
     from concurrent.futures import ThreadPoolExecutor
+
+    def _check():
+        if cancel_check and (cancel_check() if callable(cancel_check) else cancel_check.is_set()):
+            raise InterruptedError("Sentinel-2 band download cancelled by client")
+
+    _check()
 
     def _vsi(url: str) -> str:
         return f"/vsicurl/{url}" if url.startswith("http") and not url.startswith("/vsicurl/") else url
@@ -147,6 +138,7 @@ def clip_scene_to_stack(item, bbox, out_path):
     # Pre-calculate target grid using first band & read its pixels directly
     first_band = S2_BANDS[0]
     first_href = _vsi(item.assets[first_band].href)
+    _check()
     with rasterio.Env(**gdal_env):
         with rasterio.open(first_href) as src0:
             minx, miny, maxx, maxy = transform_bounds("EPSG:4326", src0.crs, *bbox)
@@ -166,20 +158,25 @@ def clip_scene_to_stack(item, bbox, out_path):
     band_results = {first_band: band0_data}
 
     def fetch_single_band(band_name):
+        _check()
         href = _vsi(item.assets[band_name].href)
         with rasterio.Env(**gdal_env):
             with rasterio.open(href) as src:
                 win = from_bounds(minx, miny, maxx, maxy, transform=src.transform)
                 band_data = src.read(1, window=win, out_shape=(target_h, target_w), boundless=True, fill_value=0)
+                _check()
                 return band_name, band_data
 
     # Stream remaining Sentinel-2 bands (max 2 concurrent connections to prevent bandwidth saturation)
     remaining_bands = [b for b in S2_BANDS if b != first_band]
     if remaining_bands:
+        _check()
         with ThreadPoolExecutor(max_workers=min(2, len(remaining_bands))) as pool:
             for b_name, b_data in pool.map(fetch_single_band, remaining_bands):
+                _check()
                 band_results[b_name] = b_data
 
+    _check()
     band_arrays = [band_results[b] for b in S2_BANDS]
     stack = np.stack(band_arrays, axis=0)
     atomic_raster_write(out_path, stack, profile, descriptions=tuple(S2_BANDS))

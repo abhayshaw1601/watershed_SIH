@@ -287,10 +287,10 @@ def load_or_fetch_optical_date(
     date_tag: str,
     raw_path: Path,
     stack_path: Path,
-    on_step=None,
-    target_res: float = 10.0,
-    target_date: Optional[str] = None,
-) -> Tuple[Any, str]:
+    on_step: callable = None,
+    target_date: str = None,
+    cancel_check: callable = None,
+) -> tuple[datetime.date, str]:
     """
     Unified optical ingestion with Ponytail simplicity:
     0. Tier 0: Check MongoDB GridFS Clipped Raster Cache (<50ms).
@@ -301,10 +301,18 @@ def load_or_fetch_optical_date(
     import time
     t_start = time.time()
     fallback_reason = None
+    target_res = 10.0
+
+    def _check():
+        if cancel_check and (cancel_check() if callable(cancel_check) else cancel_check.is_set()):
+            raise InterruptedError("Optical data ingestion cancelled by client")
 
     def step(m):
+        _check()
         if on_step:
             on_step(m)
+
+    _check()
 
     # 0. TIER 0: MongoDB Clipped Raster Cache (<50ms)
     cached_raster = mrc.get_cached_raster(bbox, date_tag)
@@ -470,9 +478,11 @@ def load_or_fetch_optical_date(
     item = search_scene(bbox, date_tag, custom_window=custom_window)
     dt = item.datetime.date()
     step(f"[{date_tag}] Streaming & clipping scene bands ({dt})...")
-    clip_scene_to_stack(item, bbox, raw_path)
+    clip_scene_to_stack(item, bbox, raw_path, cancel_check=cancel_check)
+    _check()
     step(f"[{date_tag}] Computing NDVI / NDWI...")
     build_6channel_stack(raw_path, stack_path)
+    _check()
     source_label = f"Copernicus Sentinel-2 L2A (AWS S3 Fallback, {dt})"
 
     # Read the built stack and store in MongoDB GridFS

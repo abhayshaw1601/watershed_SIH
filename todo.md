@@ -231,6 +231,17 @@ The platform is designed around a decoupled **Data Ingestion Seam** (`data_adapt
   - Multi-class alignment convergence (73.3% overall, 97.1% agriculture cropland).
   - High-contrast `@media print` layout and complete JSON export.
 
+### Phase 7: Real-Time Cancellation, Geocoding Proxy & Operational Hardening (Sep 2026)
+- [x] **7.1 In-Flight Pipeline Cancellation & Non-Blocking Worker Shutdown**:
+  - Added `POST /api/pipeline/cancel` and non-blocking 100ms polling loop with `pool.shutdown(wait=False, cancel_futures=True)`.
+  - Added interactive animated red `[Cancel Analysis ✕]` button directly on the search bar in `LocationPicker.tsx`.
+- [x] **7.2 Server-Side Geocoding Reverse Proxy**:
+  - Implemented `GET /api/geocode?q=...` with compliant User-Agent headers, preventing browser CORS / Forbidden header failures.
+- [x] **7.3 Process-Isolated Atomic File Writes**:
+  - Hardened `atomic_raster_write` with PID/UUID temp files in `config.py` preventing race conditions during concurrent searches.
+- [x] **7.4 Bhoonidhi Failover & Pre-Warming Documentation**:
+  - Documented geographic coverage rationale and offline CLI pre-warming workflow (`bhoonidhi_prewarm.py`).
+
 ---
 
 ## 4. Hackathon Defense & Positioning (SIH PS-26015)

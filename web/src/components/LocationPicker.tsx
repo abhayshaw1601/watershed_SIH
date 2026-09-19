@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/cn";
 import Button from "@/components/ui/Button";
-import { MagnifyingGlass, Crosshair, ArrowUpRight, Warning, CalendarBlank } from "@phosphor-icons/react";
+import { MagnifyingGlass, Crosshair, ArrowUpRight, Warning, CalendarBlank, X } from "@phosphor-icons/react";
 
 export type CustomLocation = {
   name: string;
@@ -23,14 +23,26 @@ const RADIUS_OPTIONS = [
   { value: 5.0, label: "5.0 km", desc: "Broad regional catchment" },
 ] as const;
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "http://127.0.0.1:8000"
+)
+  .trim()
+  .replace(/\/$/, "");
+
 export default function LocationPicker({
   customLocation,
   onSelectCustom,
+  onCancel,
+  isAnalyzing = false,
 }: {
   activeSiteKey?: string;
   customLocation: CustomLocation | null;
   onSelectPreset?: (key: any) => void;
   onSelectCustom: (loc: CustomLocation) => void;
+  onCancel?: () => void;
+  isAnalyzing?: boolean;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -134,38 +146,52 @@ export default function LocationPicker({
     setSearchError(null);
 
     try {
-      // Force English language in parameters and headers to avoid Hindi/Devanagari text
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
-          query
-        )}&format=json&limit=5&countrycodes=in&accept-language=en&namedetails=1`,
-        {
-          headers: {
-            "User-Agent": "watershed-signal-sih2026-demo/1.0 (hackathon prototype)",
-            "Accept-Language": "en-US,en;q=0.9",
-          },
+      // 1. Try our backend geocoder first (no browser CORS or forbidden header issues)
+      let englishName = query;
+      let parsedLat: number | null = null;
+      let parsedLon: number | null = null;
+
+      try {
+        const backendRes = await fetch(`${API_BASE_URL}/api/geocode?q=${encodeURIComponent(query)}`);
+        if (backendRes.ok) {
+          const bData = await backendRes.json();
+          if (bData.lat != null && bData.lon != null) {
+            parsedLat = parseFloat(bData.lat);
+            parsedLon = parseFloat(bData.lon);
+            englishName = bData.display_name || query;
+          }
         }
-      );
-
-      if (!res.ok) throw new Error(`Search failed: HTTP ${res.status}`);
-      const data = await res.json();
-
-      if (!data || data.length === 0) {
-        setSearchError(`No Indian location matching "${query}" found.`);
-        setIsSearching(false);
-        return;
+      } catch (beErr) {
+        console.warn("Backend geocoder query skipped, falling back to direct OSM:", beErr);
       }
 
-      const place = data[0];
-      const parsedLat = parseFloat(place.lat);
-      const parsedLon = parseFloat(place.lon);
+      // 2. Fallback to direct Nominatim if backend geocoder was unavailable
+      if (parsedLat === null || parsedLon === null) {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+            query
+          )}&format=json&limit=5&countrycodes=in&accept-language=en&namedetails=1`
+        );
 
-      // Strict English name extraction to avoid Hindi/Devanagari text
-      const englishName =
-        place.namedetails?.["name:en"] ||
-        place.name ||
-        place.display_name.split(",")[0].trim() ||
-        query;
+        if (!res.ok) throw new Error(`Search failed: HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (!data || data.length === 0) {
+          setSearchError(`No Indian location matching "${query}" found.`);
+          setIsSearching(false);
+          return;
+        }
+
+        const place = data[0];
+        parsedLat = parseFloat(place.lat);
+        parsedLon = parseFloat(place.lon);
+
+        englishName =
+          place.namedetails?.["name:en"] ||
+          place.name ||
+          place.display_name.split(",")[0].trim() ||
+          query;
+      }
 
       onSelectCustom({
         name: englishName,
@@ -424,14 +450,26 @@ export default function LocationPicker({
                 weight="bold"
               />
             </div>
-            <Button
-              type="submit"
-              size="lg"
-              disabled={isSearching || !searchQuery.trim()}
-              className="shrink-0"
-            >
-              {isSearching ? "Geocoding & Locating..." : "Search & Ingest AOI →"}
-            </Button>
+            {isAnalyzing ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="flex items-center justify-center gap-2 rounded-2xl border border-red-500/60 bg-red-500/15 hover:bg-red-500/25 text-red-500 hover:text-red-400 px-6 py-3.5 font-mono text-sm font-semibold transition-all cursor-pointer shadow-md active:scale-95 shrink-0 animate-pulse"
+                title="Cancel running satellite ingestion immediately"
+              >
+                <X size={18} weight="bold" />
+                <span>Cancel Analysis</span>
+              </button>
+            ) : (
+              <Button
+                type="submit"
+                size="lg"
+                disabled={isSearching || !searchQuery.trim()}
+                className="shrink-0"
+              >
+                {isSearching ? "Geocoding & Locating..." : "Search & Ingest AOI →"}
+              </Button>
+            )}
           </div>
 
           {/* Analysis Radius & Area Selection Controls */}
@@ -452,9 +490,11 @@ export default function LocationPicker({
                   <button
                     key={opt.value}
                     type="button"
+                    disabled={isAnalyzing}
                     onClick={() => handleRadiusPresetClick(opt.value)}
                     className={cn(
-                      "rounded-lg border px-3 py-1.5 font-mono text-xs transition-all cursor-pointer",
+                      "rounded-lg border px-3 py-1.5 font-mono text-xs transition-all",
+                      isAnalyzing ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
                       isSelected
                         ? "border-foreground bg-foreground text-background shadow-sm font-semibold"
                         : "border-foreground/15 bg-background text-foreground/80 hover:border-foreground/40 hover:text-foreground"
@@ -621,9 +661,21 @@ export default function LocationPicker({
           {renderTimelineSection()}
 
           <div className="flex justify-end pt-2">
-            <Button type="submit" size="md">
-              Inspect Custom Coordinates & Radius →
-            </Button>
+            {isAnalyzing ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="flex items-center gap-2 rounded-xl border border-red-500/60 bg-red-500/15 hover:bg-red-500/25 text-red-500 hover:text-red-400 px-5 py-2.5 font-mono text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95 animate-pulse"
+                title="Cancel running analysis immediately"
+              >
+                <X size={15} weight="bold" />
+                <span>Cancel Analysis</span>
+              </button>
+            ) : (
+              <Button type="submit" size="md">
+                Inspect Custom Coordinates & Radius →
+              </Button>
+            )}
           </div>
         </form>
       )}
