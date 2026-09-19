@@ -85,17 +85,18 @@ auditable reason.
 | ISRO Bhuvan 50K API | Official government land-cover ground truth | National Survey Vector Database | ~1.2s |
 | Redis In-Memory Store | Binary PNG rasters & JSON metadata streaming | No — RAM caching (24h TTL) | **< 10 ms** (Zero disk writes) |
 
-## 4. Data sources & Dual-Tier Ingestion Architecture
+## 4. Data sources & 3-Tier Ingestion Architecture
 
-| Tier | Data Category | Source | Coverage | Integration Status |
+| Tier | Data Category | Source | Coverage | Latency / Integration Status |
 |---|---|---|---|---|
+| **Tier 0 (Instant Local Cache)** | Pre-Clipped 6-Channel Stack | **MongoDB GridFS** (`watershed_db.raster_cache`) | Pre-warmed watersheds | **< 50 ms** (17.9ms roundtrip read/write) |
 | **Tier 1 (National Primary)** | Live LULC Ground Truth | **ISRO Bhuvan REST API** (`curl_aoi.php`) | All-India, 1:50k vector classes | **ACTIVE & LIVE** (authenticated 24-hr token, Redis-cached) |
-| **Tier 1 (National Primary)** | Indian Satellite Imagery | **ISRO Bhoonidhi (Resourcesat-2/2A LISS-III)** | India (140km swaths, 23.5m res) | **ACTIVE & LIVE** (Virtual `/vsizip/` zero-extraction streaming) |
-| **Tier 2 (High-Availability Fallback)** | Multi-Spectral Optical | **Copernicus Sentinel-2 L2A** (AWS Open Data) | Global, ~5-day revisit, 10m res | **ACTIVE & LIVE** (Instant windowed COG streaming in ~8s) |
+| **Tier 1 (National Primary)** | Indian Satellite Imagery | **ISRO Bhoonidhi (Resourcesat-2/2A LISS-III)** | India (140km swaths, 23.5m res) | **ACTIVE & LIVE** (OAuth2 JWT STAC search + `/vsizip/` virtual streaming) |
+| **Tier 2 (High-Availability Fallback)** | Multi-Spectral Optical | **Copernicus Sentinel-2 L2A** (AWS Open Data) | Global, ~5-day revisit, 10m res | **ACTIVE & LIVE** (Hardened HTTP/1.1 COG range-reading with 12s socket timeout) |
 | **Tier 2 (Topography & Hydrology)** | Global Elevation Mosaic | **Copernicus GLO-30 DEM** (AWS Open Data) | Global, 30m spatial resolution | **ACTIVE & LIVE** (Direct windowed D8 flow routing & pour snapping) |
 | **Field Ground-Truth** | Mobile Verification Photos | **SRISHTI-DRISHTI** (NRSC / WDC-PMKSY) | Project-specific (Kadwanchi, etc.) | **BUILT** (5-point spatial evidence fusion engine in `FieldTab.tsx`) |
 
-Key point: The pipeline operates on an **automatic dual-tier architecture**. When an area has preloaded ISRO Bhoonidhi satellite data (like Kadwanchi), it consumes native Indian satellite bands. If an arbitrary Indian location (like Kolkata or Pune) is queried, it instantly falls back to Sentinel-2 on AWS Open Data while **always cross-validating against the live ISRO Bhuvan government ground-truth database**.
+Key point: The pipeline operates on an **automatic 3-tier architecture**. When a watershed is already cached in MongoDB GridFS, it returns in under 50ms (Tier 0). If fresh satellite data is required, it queries live ISRO Bhoonidhi STAC and streams native Indian satellite bands (Tier 1). If an arbitrary Indian location (like Kolkata or Pune) is queried where Indian satellite coverage is not online, it cleanly falls back to Sentinel-2 on AWS Open Data (Tier 2) while **always cross-validating against the live ISRO Bhuvan government ground-truth database** and recording statutory audit entries in MongoDB.
 
 ## 5. Area of Interest (AOI) history
 
@@ -1165,49 +1166,59 @@ flowchart TD
 ### 16.1. Institutional Context & Problem Statement 26015 Compliance
 Under **Smart India Hackathon Problem Statement 26015** (*Application of Geospatial Techniques for Visualization and Analysis to Interpret Geo-Coded Images to Enhance Watershed Development Outcomes*), the Ministry of Rural Development and ISRO / NRSC evaluate systems on their ability to ingest sovereign Indian Earth Observation data. 
 
-A production government platform cannot solely depend on international satellite providers (ESA Sentinel-2, NASA Landsat). At the same time, relying exclusively on ISRO's manual ordering portal would freeze live field demonstrations whenever an unregistered or arbitrary district is searched. Watershed Signal resolves this through an **automated dual-tier ingestion seam** implemented in `project/src/data_adapter.py`:
-1. **Tier 1 (National Primary Tier)**: Native ingestion of official ISRO Resourcesat-2/2A LISS-III satellite archives from Bhoonidhi, paired with real-time REST API verification against ISRO Bhuvan's 1:50,000 Land Use / Land Cover database (`curl_aoi.php`).
-2. **Tier 2 (High-Availability Fallback Tier)**: Automated fallback to Copernicus Sentinel-2 L2A and Copernicus GLO-30 DEM on AWS Open Data, guaranteeing zero downtime and immediate (<10s) responses for any coordinates in India.
+A production government platform cannot solely depend on international satellite providers (ESA Sentinel-2, NASA Landsat). At the same time, relying exclusively on ISRO's manual ordering portal would freeze live field demonstrations whenever an unregistered or arbitrary district is searched. Watershed Signal resolves this through an **automated 3-tier ingestion seam** implemented in `project/src/data_adapter.py`:
+1. **Tier 0 (Instant Local Cache — <50ms)**: Direct retrieval of pre-clipped 6-channel normalized float32 raster stacks from **MongoDB GridFS** (`watershed_db.raster_cache`), eliminating heavy 400MB–1.2GB raw ZIP downloads during live requests.
+2. **Tier 1 (National Primary Tier)**: Native ingestion of official ISRO Resourcesat-2/2A LISS-III satellite archives from Bhoonidhi (`bhoonidhi_client.py`), paired with real-time REST API verification against ISRO Bhuvan's 1:50,000 Land Use / Land Cover database (`curl_aoi.php`).
+3. **Tier 2 (High-Availability Fallback Tier)**: Automated fallback to Copernicus Sentinel-2 L2A and Copernicus GLO-30 DEM on AWS Open Data with hardened GDAL HTTP/1.1 networking and 12s socket timeouts, guaranteeing zero downtime and fast responses for any coordinates in India.
 
-### 16.2. Zero-Extraction Bhoonidhi Resourcesat-2A Engine (`/vsizip/`)
-Traditional geospatial pipelines decompress multi-gigabyte satellite `.zip` archives onto disk, quickly exhausting server storage and causing disk I/O bottlenecks. Watershed Signal implements **zero-extraction virtual raster streaming**:
-- **Virtual File System Routing**: Utilizes GDAL / Rasterio's `/vsizip/` driver to open multi-spectral bands directly out of compressed archives on disk:
+### 16.2. Tier 0: MongoDB GridFS Clipped Raster Cache & Statutory Audit Logging (`mongo_raster_cache.py`)
+- **The Latency Solution**: Rather than storing multi-hundred-megabyte raw ZIPs on disk, the system saves only the pre-clipped, 6-channel normalized float32 array (`float32`, `[6, H, W]`, ~4MB to 18MB) into MongoDB GridFS.
+- **Benchmark Speed**: Full stack read/write roundtrip executes in **17.9 ms**, enabling repeat requests to respond in **< 50 ms**.
+- **Statutory Audit Trail**: Every ingestion request is recorded in `watershed_db.audit_logs` tracking `action` (`CACHE_HIT` vs `SATELLITE_INGESTION`), `aoi_name`, `bbox`, `date_tag`, `source`, `tier` (0, 1, 2), `latency_s`, `product_id`, and `fallback_reason`.
+- **Dual-Connection Docker Networking**: Automatically connects to `127.0.0.1` locally, and auto-bridges to `host.docker.internal` inside Docker containers. Degrades gracefully if MongoDB Compass is offline.
+- **Admin Pre-Warming Tool (`bhoonidhi_prewarm.py`)**: CLI utility enabling teams to pre-load any watershed AOI into MongoDB GridFS prior to field deployments (`python src/bhoonidhi_prewarm.py --bbox ... --dates T1,T2`).
+
+### 16.3. Tier 1: Live ISRO Bhoonidhi STAC & Zero-Extraction Engine (`bhoonidhi_client.py`)
+- **OAuth2 JWT Authentication**: Uses Python standard library `urllib` to negotiate tokens against `https://bhoonidhi.nrsc.gov.in/bhoonidhi-api/auth/token`. Caches tokens for 1200 seconds (20 minutes) to respect ISRO's strict limit of 20 auth calls/hour.
+- **STAC Catalog Search**: Queries `https://bhoonidhi.nrsc.gov.in/bhoonidhi-api/data/search` using OGC CQL2 JSON filters on `ResourceSat-2A_LISS3_BOA` (Surface Reflectance) and `ResourceSat-2A_LISS3_L2`, filtering on `Online: 'Y'`.
+- **15-Second Circuit Breaker**: Aborts slow scene downloads if transfer exceeds 15 seconds, engaging Tier 2 S3 fallback to protect user experience.
+- **Zero-Extraction Virtual Raster Streaming**: Utilizes GDAL `/vsizip/` driver to read multi-spectral bands directly from compressed ZIPs:
   ```python
   vsi_band2 = f"/vsizip/{zpath.resolve().as_posix()}/{stem}/BAND2.tif"
   with rasterio.open(vsi_band2) as src:
       ...
   ```
-- **Temporal Pairing**: Automatically discovers and chronologically orders all valid scenes covering the target AOI:
-  - **T1 Baseline**: Selects the earliest available scene (e.g., `RA327DEC2025046988009700058...` from 27-Dec-2025).
-  - **T2 Recent**: Selects the latest available scene (e.g., `RA309MAR2026048011009700058...` from 09-Mar-2026).
-- **Spectral Alignment & Blue Proxy Synthesis**: Resourcesat LISS-III features Green (Band 2), Red (Band 3), NIR (Band 4), and SWIR (Band 5). To match Model 1 U-Net's 6-channel input format (Red, Green, Blue, NIR, NDVI, NDWI), Band 2 (Green) and Band 3 (Red) are combined into a high-fidelity synthetic blue proxy (`blue = np.clip(green * 0.7 + red * 0.3, 0.0, 1.0)`), and native 23.5m pixels are resampled bilinearly onto a 10m grid.
-- **Benchmark Speed**: Full 6-channel stack extraction and normalization executes in **1.66 seconds** directly from the ZIP archive.
+- **Spectral Alignment & Blue Proxy Synthesis**: Resourcesat LISS-III features Green (B2), Red (B3), NIR (B4), and SWIR (B5). To match Model 1 U-Net's 6-channel input format (Red, Green, Blue, NIR, NDVI, NDWI), Band 2 (Green) and Band 3 (Red) are combined into a high-fidelity synthetic blue proxy (`blue = np.clip(green * 0.7 + red * 0.3, 0.0, 1.0)`), and native 23.5m pixels are resampled bilinearly onto a 10m grid.
 
-### 16.3. Live ISRO Bhuvan 50k LULC REST API Client
-The application integrates with ISRO's live Bhuvan API gateway at `https://bhuvan-app1.nrsc.gov.in/api/`:
+### 16.4. Tier 2: Hardened Copernicus Sentinel-2 Open Data Fallback (`data_download.py`)
+To eliminate stalls caused by AWS S3 HTTP/2 multiplexing drops and Indian ISP IPv6 NAT64 connection resets, GDAL is configured with strict network boundaries:
+- `GDAL_HTTP_VERSION: "1.1"` and `GDAL_HTTP_MULTIPLEX: "NO"` to ensure rock-solid HTTP/1.1 range requests.
+- `GDAL_HTTP_TIMEOUT: "12"` and `GDAL_HTTP_CONNECTTIMEOUT: "5"` to kill dead sockets in seconds rather than the 300-second default.
+- `GDAL_HTTP_MAX_RETRY: "2"` to avoid endless retry storms across 8 parallel spectral bands.
+
+### 16.5. Live ISRO Bhuvan 50k LULC REST API Client & Tripartite Reporting
 - **Endpoint**: `GET /api/lulc/curl_aoi.php?geom=POLYGON(...)&token=...`
 - **Dynamic AOI Polygons**: Formats the exact bounding box of the active watershed into Well-Known Text (`WKT`), queries NRSC's live backend, and parses official government area statistics across 14 standard NRSC codes (`l01`–`l24`).
-- **Live Multi-State Verification**:
-  - **Kadwanchi Watershed (Maharashtra)**: Returns official baseline of 81.23 km² (Cropland: 33.81 km² / 41.62%, Fallow: 28.41 km² / 34.97%, Barren: 11.52 km² / 14.18%, Water: 2.96 km² / 3.64%).
-  - **Kolkata Urban AOI (West Bengal)**: Returns official baseline of 17.33 km² (Built-up Urban: 16.40 km² / 94.63%, River/Canal: 0.91 km² / 5.25%).
-  - **Pune Metropolitan AOI (Maharashtra)**: Returns official baseline of 16.87 km² (Built-up Urban: 14.04 km² / 83.22%, Cropland: 0.69 km² / 4.09%).
-- **Caching Layer**: Responses are cached with a 24-hour Time-To-Live (TTL) using a dual-backend cache (Redis container `watershed-redis` on `127.0.0.1:6379` with automatic fallback to thread-safe in-memory LRU).
+- **Tripartite Cross-Validation Report (`/bhuvan-report`)**: Web GIS 9th tab rendering official sign-offs for NRSC Technical Validator, MoRD / WDC-PMKSY Reviewer, and Project Lead with high-contrast A4 print CSS.
 
-### 16.4. Architectural Port Separation & Service Decoupling
-To eliminate port collisions and adhere to production deployment standards:
-- **Python Analytical Backend**: Binds to `http://0.0.0.0:8000` (`project/app/api_server.py`), exposing REST endpoints:
-  - `GET /api/health`: Model checkpoint health and metrics.
-  - `GET /api/bhuvan/status`: Real-time Bhuvan token and Bhoonidhi catalog status.
+### 16.6. Architectural Port Separation, Service Decoupling & Deployment
+- **Python Analytical Backend**: Binds to `http://0.0.0.0:8000` (or `8080` in Docker), exposing REST endpoints:
+  - `GET /api/health`: Model checkpoint health, device (CUDA/CPU), and uptime.
+  - `GET /api/bhuvan/status`: Real-time Bhuvan token, Bhoonidhi credentials, and MongoDB connection status.
   - `GET /api/bhuvan/aoi-stats`: Live ISRO 50k LULC query for any bounding box.
+  - `GET /api/audit-logs`: Statutory ingestion audit records from MongoDB GridFS.
   - `POST /api/pipeline/run`: Full execution pipeline with automated multi-sensor selection.
+  - `GET /api/images/{siteKey}/{imageName}`: Direct in-memory streaming of classified rasters and overlays from Redis RAM (<10ms).
+- **Single-Container Cloud Run Deployment**: Single container running embedded Redis daemon (`redis-server --daemonize yes && python app/api_server.py`) for $0 idle cost.
 - **Next.js Web GIS Dashboard**: Runs on `http://localhost:3000` (`web/`), communicating with the Python backend via environment-injected `NEXT_PUBLIC_API_URL=http://127.0.0.1:8000`.
 
-### 16.5. Scientific Validation & Telemetry UI (`ValidationTab.tsx`)
+### 16.7. Scientific Validation & Telemetry UI (`ValidationTab.tsx`)
 The frontend's **Scientific Validation tab** connects directly to `meta.bhuvan_stats`:
 - **Live Ground-Truth Comparison Card**: Displays an interactive table comparing official NRSC class distributions (area in km² and percentage) against Model 1 U-Net AI predictions.
 - **Sensor Attribution Badge**: The header dynamically highlights active data origin:
   - `🛰️ ISRO Bhoonidhi (Resourcesat-2A LISS-III)` when native Indian satellite data is used.
   - `🛰️ Copernicus Sentinel-2 L2A (AWS Open Data)` when high-availability fallback is active.
 - **Official Bhuvan Link**: Displays the green `🇮🇳 ISRO Bhuvan 50k LULC Verified` confirmation badge when verified against the national database.
+
 
 
