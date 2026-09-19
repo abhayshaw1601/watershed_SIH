@@ -17,6 +17,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+import os
+os.environ["BHOONIDHI_LIVE_DOWNLOAD"] = "true"
+
 import mongo_raster_cache as mrc
 from config import AOI_BBOX, AOI_JOBS, DATA_RAW, DATA_PROCESSED
 import data_adapter as da

@@ -13,6 +13,12 @@ services:
       - PORT=8080
       - PYTHONUNBUFFERED=1
       - MONGO_URI=mongodb://host.docker.internal:27017
+    volumes:
+      - ./src:/app/src
+      - ./app:/app/app
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./bhoonidhi_data:/app/bhoonidhi_data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:

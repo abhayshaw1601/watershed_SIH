@@ -346,8 +346,12 @@ def load_or_fetch_optical_date(
     # Check local ZIP cache first
     bhoonidhi_match = find_best_bhoonidhi_scene(bbox, date_tag=date_tag, target_date=target_date)
 
-    # If not found locally, query live Bhoonidhi STAC and download with 15s budget
-    if not bhoonidhi_match and os.environ.get("BHOONIDHI_USER"):
+    # If not found locally, query live Bhoonidhi STAC
+    # Note: Full Bhoonidhi scenes are 400MB-1.2GB ZIPs. Downloading them on-the-fly during a live
+    # web request causes 90s+ timeouts. Live download is enabled only if BHOONIDHI_LIVE_DOWNLOAD=true
+    # (e.g. during offline CLI prewarming via bhoonidhi_prewarm.py).
+    allow_live_download = os.environ.get("BHOONIDHI_LIVE_DOWNLOAD", "false").lower() == "true"
+    if not bhoonidhi_match and os.environ.get("BHOONIDHI_USER") and allow_live_download:
         try:
             step(f"[{date_tag}] Searching live ISRO Bhoonidhi STAC catalog (Tier 1)...")
             client = BhoonidhiClient()
@@ -374,6 +378,8 @@ def load_or_fetch_optical_date(
         except Exception as api_err:
             print(f"--> [Bhoonidhi] API search failed ({api_err}). Engaging AWS S3 fallback.", flush=True)
             fallback_reason = str(api_err)
+    elif not bhoonidhi_match:
+        fallback_reason = "Bhoonidhi local scene not pre-warmed; engaged fast AWS S3 windowed streaming"
 
     if bhoonidhi_match:
         dt, zpath, stem = bhoonidhi_match

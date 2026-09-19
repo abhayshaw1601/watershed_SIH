@@ -129,13 +129,15 @@ def clip_scene_to_stack(item, bbox, out_path):
         return f"/vsicurl/{url}" if url.startswith("http") and not url.startswith("/vsicurl/") else url
 
     gdal_env = {
-        "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+        "GDAL_DISABLE_READDIR_ON_OPEN": "YES",
         "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
         "GDAL_HTTP_MULTIPLEX": "NO",
         "GDAL_HTTP_VERSION": "1.1",
-        "GDAL_HTTP_TIMEOUT": "12",
-        "GDAL_HTTP_CONNECTTIMEOUT": "5",
+        "GDAL_HTTP_TIMEOUT": "60",
+        "GDAL_HTTP_CONNECTTIMEOUT": "10",
+        "GDAL_HTTP_RETRY_DELAY": "1",
         "GDAL_HTTP_MAX_RETRY": "2",
+        "CPL_VSIL_CURL_USE_HEAD": "NO",
         "GDAL_NUM_THREADS": "ALL_CPUS",
         "VSI_CACHE": "TRUE",
         "VSI_CACHE_SIZE": "50000000",
@@ -171,10 +173,10 @@ def clip_scene_to_stack(item, bbox, out_path):
                 band_data = src.read(1, window=win, out_shape=(target_h, target_w), boundless=True, fill_value=0)
                 return band_name, band_data
 
-    # Stream remaining Sentinel-2 bands in parallel over concurrent HTTP connections
+    # Stream remaining Sentinel-2 bands (max 2 concurrent connections to prevent bandwidth saturation)
     remaining_bands = [b for b in S2_BANDS if b != first_band]
     if remaining_bands:
-        with ThreadPoolExecutor(max_workers=len(remaining_bands)) as pool:
+        with ThreadPoolExecutor(max_workers=min(2, len(remaining_bands))) as pool:
             for b_name, b_data in pool.map(fetch_single_band, remaining_bands):
                 band_results[b_name] = b_data
 
