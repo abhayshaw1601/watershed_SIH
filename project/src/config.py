@@ -38,8 +38,23 @@ def atomic_raster_write(out_path, data, profile, descriptions=None):
     import uuid
     out_path = Path(out_path)
     tmp_path = out_path.with_suffix(f"{out_path.suffix}.tmp.{os.getpid()}.{uuid.uuid4().hex[:6]}")
+    # ponytail: ensure basic GTiff driver and dimension profile exists to prevent DriverRegistrationError
+    prof = (profile or {}).copy()
+    if "driver" not in prof:
+        prof["driver"] = "GTiff"
+    if "dtype" not in prof:
+        prof["dtype"] = str(data.dtype)
+    if "count" not in prof:
+        prof["count"] = data.shape[0] if data.ndim == 3 else 1
+    if "height" not in prof:
+        prof["height"] = data.shape[1] if data.ndim == 3 else data.shape[0]
+    if "width" not in prof:
+        prof["width"] = data.shape[2] if data.ndim == 3 else data.shape[1]
+    if "crs" not in prof:
+        prof["crs"] = "EPSG:4326"
+
     try:
-        with rasterio.open(tmp_path, "w", **profile) as dst:
+        with rasterio.open(tmp_path, "w", **prof) as dst:
             dst.write(data)
             if descriptions:
                 dst.descriptions = descriptions

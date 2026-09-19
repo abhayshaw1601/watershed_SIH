@@ -28,7 +28,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import requests
-import streamlit as st
+try:
+    import streamlit as st
+except ImportError:
+    st = None
 
 from config import AOI_CENTER_LAT, AOI_CENTER_LON, AOI_NAME, DATA_PROCESSED
 from data_download import search_scene, clip_scene_to_stack
@@ -76,23 +79,108 @@ PRESET_AOIS = [
 ]
 
 
+# Curated Indian locations fast-path (instant 0ms response)
+INDIAN_LOCATION_PRESETS = {
+    "kadwanchi": (19.8830, 75.9910, "Kadwanchi Watershed, Jalna, Maharashtra"),
+    "nalhati": (24.2966, 87.8353, "Nalhati, Birbhum, West Bengal"),
+    "kolkata": (22.5726, 88.3639, "Kolkata, West Bengal"),
+    "pune": (18.5204, 73.8567, "Pune, Maharashtra"),
+    "jalna": (19.8410, 75.8864, "Jalna, Maharashtra"),
+    "tamhini": (18.4493, 73.4227, "Tamhini Ghat, Western Ghats, Maharashtra"),
+    "tamhini ghat": (18.4493, 73.4227, "Tamhini Ghat, Western Ghats, Maharashtra"),
+    "donimalai": (15.0589, 76.5937, "Donimalai Mine, Ballari, Karnataka"),
+    "jayakwadi": (19.4858, 75.3700, "Jayakwadi Dam, Godavari Basin, Maharashtra"),
+    "hiware bazar": (19.0333, 74.8333, "Hiware Bazar, Ahmednagar, Maharashtra"),
+    "ralegan siddhi": (18.9167, 74.4167, "Ralegan Siddhi, Ahmednagar, Maharashtra"),
+    "jamshedpur": (22.8046, 86.2029, "Jamshedpur, Jharkhand"),
+    "jaipur": (26.9124, 75.7873, "Jaipur, Rajasthan"),
+    "bhopal": (23.2599, 77.4126, "Bhopal, Madhya Pradesh"),
+    "mumbai": (19.0760, 72.8777, "Mumbai, Maharashtra"),
+    "delhi": (28.6139, 77.2090, "New Delhi, Delhi"),
+    "bengaluru": (12.9716, 77.5946, "Bengaluru, Karnataka"),
+    "bangalore": (12.9716, 77.5946, "Bengaluru, Karnataka"),
+    "hyderabad": (17.3850, 78.4867, "Hyderabad, Telangana"),
+    "chennai": (13.0827, 80.2707, "Chennai, Tamil Nadu"),
+}
+
+
+def _cache_geocode(clean_name: str, lat: float, lon: float, display_name: str):
+    try:
+        from cache_manager import cache
+        cache.set_json(f"geocode:{clean_name}", {"lat": lat, "lon": lon, "name": display_name}, ttl=604800)
+    except Exception:
+        pass
+
+
 def geocode(place_name: str):
-    """Free-text place name -> (lat, lon, display_name), via OpenStreetMap Nominatim. None if not found."""
-    resp = requests.get(
-        "https://nominatim.openstreetmap.org/search",
-        params={"q": place_name, "format": "json", "limit": 1, "countrycodes": "in", "accept-language": "en"},
-        headers={
-            "User-Agent": "watershed-signal-sih2026-demo/1.0 (hackathon prototype)",
-            "Accept-Language": "en-US,en;q=0.9",
-        },
-        timeout=10,
-    )
-    resp.raise_for_status()
-    results = resp.json()
-    if not results:
+    """Free-text place name -> (lat, lon, display_name) with fast multi-tier lookup:
+    1. Preset Indian watershed/city dictionary (0ms).
+    2. Redis / in-memory cache (<1ms).
+    3. OpenStreetMap Nominatim with strict timeout (2.5s).
+    4. Photon Komoot API fallback (fast 1s response).
+    """
+    clean = place_name.strip().lower()
+    if not clean:
         return None
-    name = results[0].get("name") or results[0].get("display_name", place_name).split(",")[0].strip()
-    return float(results[0]["lat"]), float(results[0]["lon"]), name
+
+    # Tier 1: Local curated preset dictionary (instant 0ms)
+    if clean in INDIAN_LOCATION_PRESETS:
+        print(f"--> [Geocode] Instant 0ms preset hit for '{clean}'", flush=True)
+        return INDIAN_LOCATION_PRESETS[clean]
+
+    # Tier 2: Check Redis / in-memory cache (<1ms)
+    try:
+        from cache_manager import cache
+        cached = cache.get_json(f"geocode:{clean}")
+        if cached and "lat" in cached and "lon" in cached:
+            print(f"--> [Geocode] Cache HIT for '{clean}' (<1ms)", flush=True)
+            return float(cached["lat"]), float(cached["lon"]), cached.get("name", place_name)
+    except Exception:
+        pass
+
+    # Tier 3: Nominatim with strict timeout (2.0s connect, 2.5s read)
+    try:
+        resp = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": place_name, "format": "json", "limit": 1, "countrycodes": "in", "accept-language": "en"},
+            headers={
+                "User-Agent": "watershed-signal-sih2026-demo/1.0 (hackathon prototype)",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            timeout=(2.0, 2.5),
+        )
+        if resp.status_code == 200:
+            results = resp.json()
+            if results:
+                name = results[0].get("name") or results[0].get("display_name", place_name).split(",")[0].strip()
+                lat, lon = float(results[0]["lat"]), float(results[0]["lon"])
+                _cache_geocode(clean, lat, lon, name)
+                return lat, lon, name
+    except Exception as e:
+        print(f"--> [Geocode] Nominatim timed out ({e}), engaging fast Photon fallback...", flush=True)
+
+    # Tier 4: Photon fallback (fast secondary geocoder, ~1s)
+    try:
+        resp = requests.get(
+            "https://photon.komoot.io/api/",
+            params={"q": place_name, "limit": 1},
+            headers={"User-Agent": "watershed-signal/1.0"},
+            timeout=(2.0, 3.0),
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            features = data.get("features", [])
+            if features:
+                coords = features[0]["geometry"]["coordinates"]  # [lon, lat]
+                name = features[0]["properties"].get("name") or place_name
+                lon, lat = float(coords[0]), float(coords[1])
+                _cache_geocode(clean, lat, lon, name)
+                print(f"--> [Geocode] Photon fallback resolved '{clean}' -> ({lat:.4f}, {lon:.4f})", flush=True)
+                return lat, lon, name
+    except Exception as e:
+        print(f"--> [Geocode] Secondary geocoder failed: {e}", flush=True)
+
+    return None
 
 
 def bbox_around(lat: float, lon: float, half_km: float = HALF_KM):

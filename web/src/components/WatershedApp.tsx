@@ -56,6 +56,12 @@ export default function WatershedApp() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   const [meta, setMeta] = useState<SiteMeta | null>(null);
+  const [activeSource, setActiveSource] = useState<"sentinel" | "bhoonidhi">("sentinel");
+  const [bhoonidhiAvailable, setBhoonidhiAvailable] = useState(false);
+  const [bhoonidhiMeta, setBhoonidhiMeta] = useState<SiteMeta | null>(null);
+  const [isSwitchingSource, setIsSwitchingSource] = useState(false);
+  const [dismissedBhoonidhiNotice, setDismissedBhoonidhiNotice] = useState(false);
+  const [sourceVersion, setSourceVersion] = useState(Date.now());
   const [tab, setTab] = useState<TabKey>("land-cover");
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -72,6 +78,77 @@ export default function WatershedApp() {
     }
     return () => clearInterval(timer);
   }, [isAnalyzing]);
+
+  // Ponytail Strategy 1 & 2: Asynchronous Bhoonidhi Ingestion Polling & Sovereign Ready Signal
+  useEffect(() => {
+    if (!meta || !siteKey || bhoonidhiAvailable || meta.bhoonidhi_status === "ready" || meta.bhoonidhi_status === "unavailable" || meta.bhoonidhi_status === "failed") {
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/pipeline/bhoonidhi-status?site_key=${encodeURIComponent(siteKey)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.status === "ready") {
+          setBhoonidhiAvailable(true);
+          if (data.bhoonidhi_meta) {
+            setBhoonidhiMeta(data.bhoonidhi_meta);
+          } else {
+            const metaRes = await fetch(`${API_BASE_URL}/api/sites/${encodeURIComponent(siteKey)}?source=bhoonidhi&_t=${Date.now()}`);
+            if (metaRes.ok) {
+              const bMeta = await metaRes.json();
+              setBhoonidhiMeta(bMeta);
+            }
+          }
+          setMeta((prev) => prev ? { ...prev, bhoonidhi_status: "ready" } : prev);
+          clearInterval(interval);
+        } else if (data.status === "unavailable" || data.status === "failed") {
+          setMeta((prev) => prev ? { ...prev, bhoonidhi_status: data.status } : prev);
+          clearInterval(interval);
+        }
+      } catch {
+        // Silent failover
+      }
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [meta?.bhoonidhi_status, siteKey, bhoonidhiAvailable]);
+
+  async function handleSwitchSource(target: "bhoonidhi" | "sentinel") {
+    setIsSwitchingSource(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/pipeline/switch-source`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site_key: siteKey, source: target }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.meta) {
+          setMeta(data.meta);
+          setActiveSource(target);
+          setSourceVersion(Date.now());
+          return;
+        }
+      }
+      // Client-side fallback if server response wasn't 200
+      if (target === "bhoonidhi" && bhoonidhiMeta) {
+        setMeta(bhoonidhiMeta);
+        setActiveSource("bhoonidhi");
+        setSourceVersion(Date.now());
+      }
+    } catch (err) {
+      console.error("Failed to switch raster source:", err);
+      if (target === "bhoonidhi" && bhoonidhiMeta) {
+        setMeta(bhoonidhiMeta);
+        setActiveSource("bhoonidhi");
+        setSourceVersion(Date.now());
+      }
+    } finally {
+      setIsSwitchingSource(false);
+    }
+  }
 
   function handleCancelPipeline() {
     if (abortRef.current) {
@@ -103,6 +180,11 @@ export default function WatershedApp() {
     const runId = "run_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
     setActiveRunId(runId);
     setCancelNotice(null);
+    setActiveSource("sentinel");
+    setBhoonidhiAvailable(false);
+    setBhoonidhiMeta(null);
+    setDismissedBhoonidhiNotice(false);
+    setSourceVersion(Date.now());
 
     setCustomLocation(loc);
     setIsAnalyzing(true);
@@ -143,6 +225,11 @@ export default function WatershedApp() {
         const totalDuration = Math.round((Date.now() - startTime) / 1000);
         setSiteKey(data.siteKey || "custom_live");
         setMeta(data.meta);
+        setActiveSource(data.meta.active_source || (data.meta.primary_source?.includes("Bhoonidhi") ? "bhoonidhi" : "sentinel"));
+        if (data.meta.bhoonidhi_status === "ready") {
+          setBhoonidhiAvailable(true);
+          setBhoonidhiMeta(data.meta);
+        }
         setIsAnalyzing(false);
         setCompletedInfo({
           siteName: loc.name,
@@ -225,11 +312,25 @@ export default function WatershedApp() {
               <span className={cn(
                 "rounded-full border px-3 py-1 font-mono text-xs font-semibold flex items-center gap-1.5",
                 meta.primary_source.includes("Bhoonidhi")
-                  ? "border-amber/40 bg-amber/10 text-amber"
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
                   : "border-foreground/15 bg-background text-foreground/80"
               )}>
                 <span>🛰️</span>
                 <span>{meta.primary_source}</span>
+                {meta.primary_source.includes("Bhoonidhi") && (
+                  <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.2 font-mono text-[9px] uppercase tracking-wider text-emerald-300">
+                    Sovereign
+                  </span>
+                )}
+              </span>
+            )}
+            {meta?.bhoonidhi_status && (meta.bhoonidhi_status === "queued" || meta.bhoonidhi_status === "processing") && (
+              <span className="rounded-full border border-amber/40 bg-amber/10 px-3 py-1 font-mono text-xs font-semibold text-amber flex items-center gap-2" title="ISRO Bhoonidhi Resourcesat-2A LISS-III is downloading & clipping in background">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber"></span>
+                </span>
+                <span>Bhoonidhi Ingestion Active (Preview)</span>
               </span>
             )}
             <button
@@ -452,6 +553,125 @@ export default function WatershedApp() {
         </div>
       )}
 
+      {/* ---- Bhoonidhi Sovereign Download Notification & Action Deck ---- */}
+      {!isAnalyzing && meta && (
+        <>
+          {/* Notification: Bhoonidhi download in progress in background while Sentinel-2 preview is active */}
+          {(meta.bhoonidhi_status === "queued" || meta.bhoonidhi_status === "processing") && !bhoonidhiAvailable && (
+            <div className="mt-6 overflow-hidden rounded-2xl border border-amber/40 bg-linear-to-r from-amber/15 via-amber/10 to-transparent p-5 shadow-sm animate-fade-up">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber/20 border border-amber/40 text-amber text-xl shadow-xs">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-xl bg-amber opacity-30" />
+                    🛰️
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-sm text-foreground">
+                        Your map is being downloaded from ISRO Bhoonidhi. Please wait...
+                      </span>
+                      <span className="rounded-full bg-amber/20 border border-amber/40 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-amber uppercase tracking-wider animate-pulse flex items-center gap-1.5">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber" />
+                        Sentinel-2 Preview Active Below
+                      </span>
+                    </div>
+                    <p className="font-mono text-xs text-muted-foreground mt-1">
+                      Sentinel-2 preview is ready and displayed below. Official ISRO Resourcesat-2A LISS-III sovereign archive is being retrieved and clipped in the background.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 rounded-xl border border-amber/30 bg-amber/10 px-3.5 py-2 font-mono text-xs text-amber font-medium">
+                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-amber border-t-transparent" />
+                    <span>Downloading Bhoonidhi Scene...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Ready Banner: Bhoonidhi output is ready! Button lets user view Bhoonidhi output */}
+          {(bhoonidhiAvailable || meta.bhoonidhi_status === "ready") && (
+            <div className="mt-6 overflow-hidden rounded-2xl border-2 border-emerald-500/60 bg-linear-to-r from-emerald-500/20 via-emerald-500/10 to-transparent p-5 shadow-md animate-fade-up">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 text-xl shadow-xs">
+                    🇮🇳
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-sm text-foreground">
+                        ISRO Bhoonidhi Sovereign Map Output is Ready!
+                      </span>
+                      <span className="rounded-full bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-300 uppercase tracking-wider">
+                        Resourcesat-2A LISS-III (Tier 1)
+                      </span>
+                      {activeSource === "bhoonidhi" ? (
+                        <span className="rounded-full bg-emerald-500/30 px-2.5 py-0.5 font-mono text-[10px] font-bold text-emerald-200 flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                          Active View
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-foreground/10 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                          Preview: Sentinel-2
+                        </span>
+                      )}
+                    </div>
+                    <p className="font-mono text-xs text-muted-foreground mt-1">
+                      {activeSource === "bhoonidhi"
+                        ? "Currently displaying official ISRO Bhoonidhi Resourcesat-2A sovereign satellite data and U-Net classification."
+                        : "Sovereign satellite data has been downloaded and processed. Click the button below to view the Bhoonidhi output."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {activeSource !== "bhoonidhi" ? (
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchSource("bhoonidhi")}
+                      disabled={isSwitchingSource}
+                      className="flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 px-5 py-2.5 font-sans text-sm font-bold text-black shadow-lg shadow-emerald-500/25 transition-all cursor-pointer"
+                    >
+                      <span>🛰️</span>
+                      <span>{isSwitchingSource ? "Switching..." : "Click to View Bhoonidhi Output"}</span>
+                      <span className="rounded-md bg-black/20 px-1.5 py-0.5 font-mono text-[10px]">Tier 1</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchSource("sentinel")}
+                      disabled={isSwitchingSource}
+                      className="flex items-center gap-2 rounded-xl border border-foreground/20 bg-background hover:bg-foreground/5 active:scale-95 px-4 py-2 font-mono text-xs text-foreground transition-all cursor-pointer"
+                    >
+                      <span>🔄</span>
+                      <span>{isSwitchingSource ? "Switching..." : "Switch to Sentinel-2 Preview"}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Notice: Bhoonidhi unavailable */}
+          {meta.bhoonidhi_status === "unavailable" && !dismissedBhoonidhiNotice && (
+            <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-foreground/15 bg-background/80 px-5 py-3.5 shadow-sm text-sm font-mono text-muted-foreground animate-fade-up">
+              <div className="flex items-center gap-2.5">
+                <span>ℹ️</span>
+                <span>ISRO Bhoonidhi: No cloud-free Resourcesat-2A scene found in catalog for this date/coordinate. Sentinel-2 preview remains active.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDismissedBhoonidhiNotice(true)}
+                className="text-xs text-muted-foreground hover:text-foreground cursor-pointer rounded-md border border-foreground/10 px-2.5 py-1"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
       {/* ---- High-Precision Segmented Tab Bar ---- */}
       <div className="mt-8">
         <div
@@ -647,12 +867,12 @@ export default function WatershedApp() {
           )
         ) : (
           <>
-            {tab === "land-cover" && <LULCTab site={siteKey} meta={meta} />}
-            {tab === "change" && <ChangeTab site={siteKey} meta={meta} />}
+            {tab === "land-cover" && <LULCTab key={`${siteKey}_${activeSource}_${sourceVersion}`} site={siteKey} meta={meta} />}
+            {tab === "change" && <ChangeTab key={`${siteKey}_${activeSource}_${sourceVersion}`} site={siteKey} meta={meta} />}
             {tab === "health" && <HealthTab meta={meta} onNavigateToSimulator={() => setTab("simulator")} />}
-            {tab === "map" && <MapTab site={siteKey} meta={meta} />}
-            {tab === "field" && <FieldTab site={siteKey} meta={meta} />}
-            {tab === "investigation" && <InterventionsTab site={siteKey} meta={meta} />}
+            {tab === "map" && <MapTab key={`${siteKey}_${activeSource}_${sourceVersion}`} site={siteKey} meta={meta} />}
+            {tab === "field" && <FieldTab key={`${siteKey}_${activeSource}_${sourceVersion}`} site={siteKey} meta={meta} />}
+            {tab === "investigation" && <InterventionsTab key={`${siteKey}_${activeSource}_${sourceVersion}`} site={siteKey} meta={meta} />}
             {tab === "bhuvan-report" && <BhuvanReportTab meta={meta} onSelectTab={(t) => setTab(t as TabKey)} />}
             {tab === "validation" && <ValidationTab meta={meta} />}
             {tab === "simulator" && <SimulatorTab meta={meta} />}

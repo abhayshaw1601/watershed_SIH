@@ -29,8 +29,9 @@ try:
 except ImportError:
     pass
 
+import uuid
 from config import (
-    AOI_BBOX, DATA_RAW, DATA_PROCESSED, atomic_raster_write
+    AOI_BBOX, DATA_RAW, DATA_PROCESSED, OUTPUTS_DIR, atomic_raster_write
 )
 from cache_manager import cache
 import mongo_raster_cache as mrc
@@ -257,8 +258,9 @@ def find_best_bhoonidhi_scene(
 
 
 def format_bhoonidhi_window(date_tag: str, target_date: Optional[str] = None) -> str:
-    """Format RFC3339 datetime interval for Bhoonidhi STAC query."""
+    """Format RFC3339 datetime interval for Bhoonidhi STAC query (<365 days to prevent HTTP 406)."""
     import calendar
+    from datetime import timedelta
     if target_date:
         clean = target_date.strip()
         try:
@@ -267,7 +269,6 @@ def format_bhoonidhi_window(date_tag: str, target_date: Optional[str] = None) ->
                 last_d = calendar.monthrange(y, m)[1]
                 return f"{clean}-01T00:00:00Z/{clean}-{last_d:02d}T23:59:59Z"
             elif len(clean) == 10:  # YYYY-MM-DD
-                from datetime import timedelta
                 d = datetime.strptime(clean, "%Y-%m-%d").date()
                 s_d = d - timedelta(days=30)
                 e_d = d + timedelta(days=30)
@@ -279,7 +280,190 @@ def format_bhoonidhi_window(date_tag: str, target_date: Optional[str] = None) ->
 
     if date_tag == "T1":
         return "2019-11-01T00:00:00Z/2020-03-31T23:59:59Z"
-    return "2024-11-01T00:00:00Z/2025-03-31T23:59:59Z"
+
+    # For T2: Query recent 270 days up to current date (guaranteed < 365 days to prevent Bhoonidhi HTTP 406)
+    now = datetime.now()
+    s_d = now - timedelta(days=270)
+    return f"{s_d.strftime('%Y-%m-%d')}T00:00:00Z/{now.strftime('%Y-%m-%d')}T23:59:59Z"
+
+
+def ingest_bhoonidhi_ephemeral(
+    bbox: tuple,
+    date_tag: str = "T2",
+    target_date: Optional[str] = None,
+    timeout: float = 360.0,
+) -> Optional[Tuple[datetime.date, str, np.ndarray, Dict[str, Any]]]:
+    """
+    Ponytail Strategy 2: "Clip & Discard" Ephemeral Ingestion.
+    1. Search Bhoonidhi STAC for online scene covering bbox.
+    2. Try candidate scenes in order (handling NRSC HTTP 404 archive cold-storage gracefully).
+    3. If requested window has only archived scenes, automatically fall back to recent online window.
+    4. Stream-download ZIP to ephemeral scratch file.
+    5. Stream /vsizip/ to extract ONLY the bbox (~4MB 6-channel stack).
+    6. Store the ~4MB raster in MongoDB GridFS.
+    7. UNLINK / DELETE the ~200MB+ ZIP immediately in a finally block!
+    Returns (date, source_label, stack, metadata) or None if unavailable.
+    """
+    user = os.environ.get("BHOONIDHI_USER")
+    pwd = os.environ.get("BHOONIDHI_PASSWORD")
+    if not user or not pwd:
+        return None
+
+    from bhoonidhi_client import is_circuit_broken
+    if is_circuit_broken():
+        print(f"--> [Bhoonidhi Ephemeral] Circuit breaker active. Skipping background fetch.", flush=True)
+        return None
+
+    # Check if already in MongoDB
+    cached = mrc.get_cached_raster(bbox, date_tag)
+    if cached:
+        stack, source_label, metadata = cached
+        if source_label and "ISRO Bhoonidhi" in source_label:
+            dt_str = metadata.get("date")
+            try:
+                dt = datetime.strptime(dt_str, "%Y-%m-%d").date() if dt_str else datetime.now().date()
+            except Exception:
+                dt = datetime.now().date()
+            minx, miny, maxx, maxy = bbox
+            h, w = stack.shape[1], stack.shape[2]
+            from rasterio.transform import from_origin
+            safe_prof = {
+                "driver": "GTiff",
+                "height": h,
+                "width": w,
+                "count": 6,
+                "dtype": "float32",
+                "crs": metadata.get("crs", "EPSG:4326"),
+                "transform": from_origin(minx, maxy, (maxx - minx) / max(1, w), (maxy - miny) / max(1, h)),
+            }
+            return dt, source_label, stack, safe_prof
+
+    client = BhoonidhiClient(user, pwd)
+    primary_window = format_bhoonidhi_window(date_tag, target_date)
+    windows_to_try = [primary_window]
+
+    # If primary window is historical or custom, add recent online window as a fallback
+    from datetime import timedelta
+    now = datetime.now()
+    recent_online_window = f"{(now - timedelta(days=270)).strftime('%Y-%m-%d')}T00:00:00Z/{now.strftime('%Y-%m-%d')}T23:59:59Z"
+    if recent_online_window not in windows_to_try:
+        windows_to_try.append(recent_online_window)
+
+    scratch_dir = OUTPUTS_DIR / "scratch"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    scratch_zip = scratch_dir / f"bhoonidhi_{uuid.uuid4().hex[:8]}.zip"
+    target_res = 10.0
+
+    best_scene = None
+    pid = None
+    pcol = None
+
+    for dt_window in windows_to_try:
+        print(f"--> [Bhoonidhi Ephemeral] Searching catalog for {date_tag} (window: {dt_window})...", flush=True)
+        try:
+            scenes = client.search_scenes(bbox, dt_window, collection="ResourceSat-2A_LISS3_BOA", limit=5)
+            if not scenes:
+                scenes = client.search_scenes(bbox, dt_window, collection="ResourceSat-2A_LISS3_L2", limit=5)
+        except Exception as e:
+            print(f"--> [Bhoonidhi Ephemeral] STAC search error for window {dt_window}: {e}", flush=True)
+            continue
+
+        if not scenes:
+            print(f"--> [Bhoonidhi Ephemeral] No LISS-III scenes found for window {dt_window}", flush=True)
+            continue
+
+        # Try up to 4 candidate scenes in this window to find an active online scene
+        for candidate in scenes[:4]:
+            cand_id = candidate.get("id")
+            cand_col = candidate.get("collection", "ResourceSat-2A_LISS3_BOA")
+            cand_dt = candidate.get("properties", {}).get("datetime", "")
+            try:
+                print(f"--> [Bhoonidhi Ephemeral] Attempting candidate {cand_id[:25]} ({cand_dt[:10]})...", flush=True)
+                client.download_scene_zip(cand_id, cand_col, scratch_zip, timeout=timeout)
+                if scratch_zip.exists() and scratch_zip.stat().st_size > 1024:
+                    best_scene = candidate
+                    pid = cand_id
+                    pcol = cand_col
+                    break
+            except urllib.error.HTTPError as he:
+                if he.code == 404:
+                    print(f"--> [Bhoonidhi Ephemeral] Scene {cand_id[:25]} is archived by NRSC (HTTP 404). Trying next candidate...", flush=True)
+                    continue
+                else:
+                    print(f"--> [Bhoonidhi Ephemeral] Download error {he.code} for {cand_id[:25]}. Trying next candidate...", flush=True)
+                    continue
+            except Exception as de:
+                print(f"--> [Bhoonidhi Ephemeral] Download attempt failed for {cand_id[:25]}: {de}. Trying next candidate...", flush=True)
+                continue
+
+        if best_scene:
+            break
+
+    if not best_scene or not scratch_zip.exists() or scratch_zip.stat().st_size <= 1024:
+        print(f"--> [Bhoonidhi Ephemeral] No online downloadable LISS-III scenes found across tested windows.", flush=True)
+        return None
+
+    try:
+        stem = pid
+        # Stream directly out of zip via GDAL /vsizip/
+        base_vsi = f"/vsizip/{scratch_zip.resolve().as_posix()}/{stem}"
+        with rasterio.open(f"{base_vsi}/BAND2.tif") as src0:
+            src_crs = src0.crs
+            minx, miny, maxx, maxy = transform_bounds("EPSG:4326", src_crs, *bbox)
+            target_w = max(1, round((maxx - minx) / target_res))
+            target_h = max(1, round((maxy - miny) / target_res))
+            target_transform = rasterio.transform.from_origin(minx, maxy, target_res, target_res)
+            target_profile = {
+                "driver": "GTiff",
+                "height": target_h,
+                "width": target_w,
+                "transform": target_transform,
+                "count": 6,
+                "dtype": "float32",
+                "crs": src_crs,
+            }
+            win = from_bounds(minx, miny, maxx, maxy, transform=src0.transform)
+            green_raw = src0.read(1, window=win, out_shape=(target_h, target_w), resampling=Resampling.bilinear)
+
+        with rasterio.open(f"{base_vsi}/BAND3.tif") as src_red:
+            red_raw = src_red.read(1, window=win, out_shape=(target_h, target_w), resampling=Resampling.bilinear)
+
+        with rasterio.open(f"{base_vsi}/BAND4.tif") as src_nir:
+            nir_raw = src_nir.read(1, window=win, out_shape=(target_h, target_w), resampling=Resampling.bilinear)
+
+        red = red_raw.astype("float32") / 10000.0
+        green = green_raw.astype("float32") / 10000.0
+        nir = nir_raw.astype("float32") / 10000.0
+        blue = np.clip(green * 0.7 + red * 0.3, 0.0, 1.0)
+
+        eps = 1e-6
+        ndvi = np.clip((nir - red) / (nir + red + eps), -1.0, 1.0)
+        ndwi = np.clip((green - nir) / (green + nir + eps), -1.0, 1.0)
+
+        stack = np.stack([red, green, blue, nir, ndvi, ndwi], axis=0).astype("float32")
+        dt = parse_bhoonidhi_date(stem) or datetime.now().date()
+        source_label = f"ISRO Bhoonidhi (Resourcesat-2A LISS-III, {dt})"
+
+        # Commit ~4MB tensor to MongoDB GridFS with clean BSON serializable metadata
+        mongo_meta = {"date": str(dt), "product_id": stem, "crs": str(src_crs)}
+        mrc.save_cached_raster(bbox, date_tag, stack, source_label, metadata=mongo_meta)
+        mrc.log_ingestion_audit(
+            action="EPHEMERAL_BHOONIDHI_INGESTION", aoi_name="Watershed", bbox=bbox,
+            date_tag=date_tag, source=source_label, tier=1, latency_s=0.0, product_id=stem
+        )
+        print(f"--> [Bhoonidhi Ephemeral] SUCCESS! Committed ~4MB raster for {pid[:25]} to MongoDB GridFS.", flush=True)
+        return dt, source_label, stack, target_profile
+    except Exception as e:
+        print(f"--> [Bhoonidhi Ephemeral] Error processing {pid}: {e}", flush=True)
+        return None
+    finally:
+        # ponytail: Deletion before addition -- unconditionally clean up large zip and temp files!
+        if scratch_zip.exists():
+            scratch_zip.unlink(missing_ok=True)
+        tmp = scratch_zip.with_suffix(".tmp")
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+        print(f"--> [Bhoonidhi Ephemeral] Cleaned up temporary ZIP from disk (0 MB disk remaining).", flush=True)
 
 
 def load_or_fetch_optical_date(

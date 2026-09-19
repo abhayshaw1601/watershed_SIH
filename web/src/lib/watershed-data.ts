@@ -59,6 +59,9 @@ export type SiteMeta = {
     admin?: { state?: string; district?: string; block?: string };
     area_ha?: number;
   };
+  bhoonidhi_status?: "queued" | "processing" | "ready" | "unavailable" | "failed";
+  bhoonidhi_verified?: boolean;
+  active_source?: "sentinel" | "bhoonidhi";
 };
 
 export type SiteIndexEntry = {

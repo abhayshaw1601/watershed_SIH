@@ -13,6 +13,7 @@ import os
 import json
 import ssl
 import time
+import threading
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 import urllib.request
@@ -26,6 +27,21 @@ except ImportError:
     pass
 
 BASE_URL = "https://bhoonidhi-api.nrsc.gov.in"
+
+# ponytail: Single global download semaphore ensures at most ONE active Bhoonidhi download
+# across the entire server, protecting against HTTP 412 (concurrency > 3) and bandwidth saturation.
+BHOONIDHI_SEMAPHORE = threading.BoundedSemaphore(value=1)
+_circuit_breaker_until: float = 0.0
+
+def is_circuit_broken() -> bool:
+    """Check if Bhoonidhi circuit breaker is active."""
+    return time.time() < _circuit_breaker_until
+
+def trip_circuit_breaker(duration_sec: float = 900.0, reason: str = "Rate limit"):
+    """Trip Bhoonidhi circuit breaker to protect NRSC servers."""
+    global _circuit_breaker_until
+    _circuit_breaker_until = time.time() + duration_sec
+    print(f"--> [Bhoonidhi] Circuit breaker TRIPPED for {duration_sec:.0f}s ({reason}). Diverting to AWS S3 fallback.", flush=True)
 
 class BhoonidhiClient:
     def __init__(self, user: Optional[str] = None, password: Optional[str] = None):
@@ -155,50 +171,99 @@ class BhoonidhiClient:
     ) -> Path:
         """
         Download product archive from Bhoonidhi with a strict time budget.
-        If download exceeds `timeout` seconds, aborts to trigger AWS S3 fallback.
+        Guarded by BHOONIDHI_SEMAPHORE (max 1 concurrent download) and circuit breaker.
         """
-        token = self.get_token()
-        url = f"{BASE_URL}/download?id={product_id}&collection={collection}"
-        req = urllib.request.Request(
-            url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "User-Agent": "WatershedSignal/1.0",
-            },
-        )
+        if is_circuit_broken():
+            raise RuntimeError("Bhoonidhi circuit breaker active due to rate limits. Using fallback.")
 
-        out_zip_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = out_zip_path.with_suffix(".tmp")
-        start_time = time.time()
+        # Non-blocking acquisition to avoid thread pool starvation
+        acquired = BHOONIDHI_SEMAPHORE.acquire(blocking=True, timeout=5.0)
+        if not acquired:
+            raise RuntimeError("Bhoonidhi download in progress by another worker. Using fast fallback.")
 
         try:
-            with urllib.request.urlopen(req, context=self.ctx, timeout=timeout) as resp:
-                with open(temp_path, "wb") as f:
-                    while True:
-                        # ponytail: abort download if exceeding time budget to trigger instant S3 fallback
-                        elapsed = time.time() - start_time
-                        if elapsed > timeout:
-                            raise TimeoutError(f"Bhoonidhi download exceeded time budget ({timeout:.1f}s)")
+            token = self.get_token()
+            url = f"{BASE_URL}/download?id={product_id}&collection={collection}"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "User-Agent": "WatershedSignal/1.0",
+                },
+            )
 
-                        chunk = resp.read(1024 * 1024)  # 1MB chunk
-                        if not chunk:
-                            break
-                        f.write(chunk)
+            out_zip_path.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = out_zip_path.with_suffix(".tmp")
+            start_time = time.time()
 
-            temp_path.replace(out_zip_path)
-            total_time = time.time() - start_time
-            file_size_mb = out_zip_path.stat().st_size / (1024 * 1024)
-            print(f"--> [Bhoonidhi] Successfully downloaded {product_id} ({file_size_mb:.1f} MB in {total_time:.2f}s)", flush=True)
-            return out_zip_path
-        except urllib.error.HTTPError as e:
-            if temp_path.exists():
-                temp_path.unlink()
-            if e.code == 412:
-                raise RuntimeError("Bhoonidhi concurrent download limit (3) exceeded (HTTP 412)")
-            elif e.code == 429:
-                raise RuntimeError("Bhoonidhi rate limit reached (HTTP 429)")
-            raise
-        except Exception:
-            if temp_path.exists():
-                temp_path.unlink()
-            raise
+            try:
+                with urllib.request.urlopen(req, context=self.ctx, timeout=timeout) as resp:
+                    cl_header = resp.headers.get("Content-Length")
+                    cl = int(cl_header) if cl_header and cl_header.isdigit() else 0
+                    total_mb_str = f"{cl / (1024 * 1024):.1f} MB" if cl > 0 else "unknown size"
+                    print(f"--> [Bhoonidhi Download] Connected! Total Archive Size: {total_mb_str}. Streaming...", flush=True)
+
+                    downloaded = 0
+                    last_log_time = start_time
+                    with open(temp_path, "wb") as f:
+                        while True:
+                            # ponytail: abort download if exceeding time budget to trigger graceful fallback
+                            elapsed = time.time() - start_time
+                            if elapsed > timeout:
+                                d_mb = downloaded / (1024 * 1024)
+                                raise TimeoutError(
+                                    f"Bhoonidhi download exceeded time budget ({timeout:.0f}s) after downloading {d_mb:.1f} MB of {total_mb_str}"
+                                )
+
+                            chunk = resp.read(1024 * 1024)  # 1MB chunk
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+
+                            now = time.time()
+                            if now - last_log_time >= 5.0:
+                                last_log_time = now
+                                speed = (downloaded / (1024 * 1024)) / max(0.01, elapsed)
+                                pct_str = f"({(downloaded / cl * 100):.0f}%)" if cl > 0 else ""
+                                print(
+                                    f"--> [Bhoonidhi Download] {downloaded / (1024 * 1024):.1f} MB / {total_mb_str} {pct_str} at {speed:.2f} MB/s (elapsed: {elapsed:.0f}s)...",
+                                    flush=True,
+                                )
+
+                if cl > 0 and downloaded < int(cl * 0.95):
+                    if temp_path.exists():
+                        temp_path.unlink()
+                    raise IOError(
+                        f"Premature stream EOF: Received only {downloaded / (1024 * 1024):.1f} MB of expected {total_mb_str}."
+                    )
+
+                import zipfile
+                if not zipfile.is_zipfile(temp_path):
+                    if temp_path.exists():
+                        temp_path.unlink()
+                    raise IOError(
+                        f"Corrupted archive: Received file ({downloaded / (1024 * 1024):.1f} MB) is not a valid ZIP archive."
+                    )
+
+                temp_path.replace(out_zip_path)
+                total_time = time.time() - start_time
+                file_size_mb = out_zip_path.stat().st_size / (1024 * 1024)
+                print(f"--> [Bhoonidhi] Successfully downloaded and verified {product_id} ({file_size_mb:.1f} MB in {total_time:.2f}s)", flush=True)
+                return out_zip_path
+            except urllib.error.HTTPError as e:
+                if temp_path.exists():
+                    temp_path.unlink()
+                if e.code == 412:
+                    trip_circuit_breaker(900.0, "Concurrency limit exceeded (HTTP 412)")
+                    raise RuntimeError("Bhoonidhi concurrent download limit (3) exceeded (HTTP 412)")
+                elif e.code == 429:
+                    trip_circuit_breaker(1200.0, "Rate limit reached (HTTP 429)")
+                    raise RuntimeError("Bhoonidhi rate limit reached (HTTP 429)")
+                raise
+            except Exception:
+                if temp_path.exists():
+                    temp_path.unlink()
+                raise
+        finally:
+            BHOONIDHI_SEMAPHORE.release()
