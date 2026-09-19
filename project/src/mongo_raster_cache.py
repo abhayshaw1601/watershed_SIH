@@ -169,24 +169,28 @@ def log_ingestion_audit(
     product_id: Optional[str] = None,
 ) -> None:
     """
-    Log satellite ingestion event directly to teammate's audit_logs collection.
+    Log satellite ingestion event directly to unified audit trail and MongoDB collection.
     """
-    if not _init_mongo():
-        return
-
     try:
-        _mongo_db.audit_logs.insert_one({
-            "action": action,
-            "aoi_name": aoi_name,
-            "bbox": list(bbox),
-            "date_tag": date_tag,
-            "source": source,
-            "tier": tier,
-            "product_id": product_id,
-            "latency_s": round(latency_s, 3),
-            "fallback_reason": fallback_reason,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        import audit_logger
+        audit_logger.record_audit(
+            category="ingestion",
+            action=action,
+            user="pipeline_worker",
+            role="system",
+            details={
+                "aoi_name": aoi_name,
+                "bbox": list(bbox),
+                "date_tag": date_tag,
+                "source": source,
+                "tier": tier,
+                "product_id": product_id,
+                "latency_s": round(latency_s, 3),
+                "fallback_reason": fallback_reason,
+            },
+            status="fallback" if fallback_reason else "success",
+        )
         print(f"--> [MongoAudit] Logged ingestion audit (Tier {tier}, {source})", flush=True)
     except Exception as e:
         print(f"--> [MongoAudit] Failed to log audit: {e}", flush=True)
+

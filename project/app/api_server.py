@@ -336,6 +336,28 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
+    def _get_current_user(self) -> dict:
+        """Extract user from Authorization: Bearer <token> or query param."""
+        auth_header = self.headers.get("Authorization", "")
+        token = None
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        if not token:
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            token = qs.get("token", [None])[0]
+
+        if token:
+            try:
+                import auth_manager
+                user = auth_manager.verify_token(token)
+                if user:
+                    return user
+            except Exception:
+                pass
+
+        return {"username": "anonymous_official", "role": "official", "name": "Field Officer"}
+
     def do_OPTIONS(self):
         timestamp = datetime.now().strftime("%H:%M:%S")
         print(f"[{timestamp}] --> CORS preflight OPTIONS {self.path}", flush=True)
@@ -441,14 +463,43 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
             logs = read_validation_log()
             self._respond_json(200, logs)
 
+        elif path == "/api/auth/me":
+            user = self._get_current_user()
+            self._respond_json(200, {"status": "ok", "user": user})
+
         elif path == "/api/audit-logs":
+            user = self._get_current_user()
+            if user.get("role") != "admin":
+                try:
+                    import audit_logger
+                    audit_logger.record_audit(
+                        category="security",
+                        action="unauthorized_audit_access",
+                        user=user.get("username", "anonymous"),
+                        role=user.get("role", "unknown"),
+                        details={"path": path, "reason": "Non-admin attempted to access audit logs"},
+                        status="rejected",
+                        ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                    )
+                except Exception:
+                    pass
+                self._respond_json(403, {"error": "Forbidden: Statutory Audit Console is restricted to Admin role"})
+                return
+
             try:
-                import mongo_raster_cache as mrc
-                if mrc._init_mongo():
-                    raw_logs = list(mrc._mongo_db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).limit(30))
-                    self._respond_json(200, {"status": "ok", "count": len(raw_logs), "logs": raw_logs})
-                else:
-                    self._respond_json(200, {"status": "offline", "count": 0, "logs": []})
+                import audit_logger
+                qs = parse_qs(parsed.query)
+                category = qs.get("category", [None])[0]
+                q_filter = qs.get("q", [None])[0]
+                limit = int(qs.get("limit", [100])[0])
+                logs = audit_logger.get_audit_logs(limit=limit, category=category, query=q_filter)
+                summary = audit_logger.get_audit_summary()
+                self._respond_json(200, {
+                    "status": "ok",
+                    "count": len(logs),
+                    "summary": summary,
+                    "logs": logs,
+                })
             except Exception as e:
                 self._respond_json(500, {"error": str(e)})
 
@@ -476,6 +527,20 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 res = geocode(query)
                 if res:
                     lat, lon, display_name = res
+                    try:
+                        import audit_logger
+                        curr_user = self._get_current_user()
+                        audit_logger.record_audit(
+                            category="search",
+                            action="geocode_search",
+                            user=curr_user.get("username", "official"),
+                            role=curr_user.get("role", "official"),
+                            details={"query": query, "lat": lat, "lon": lon, "display_name": display_name},
+                            status="success",
+                            ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                        )
+                    except Exception:
+                        pass
                     self._respond_json(200, {"lat": lat, "lon": lon, "display_name": display_name})
                 else:
                     self._respond_json(404, {"error": "Location not found"})
@@ -582,7 +647,83 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
         except Exception:
             payload = {}
 
-        if path == "/api/interventions":
+        if path == "/api/auth/login":
+            import auth_manager, audit_logger
+            username = payload.get("username")
+            password = payload.get("password")
+            role_switch = payload.get("role")
+
+            user = auth_manager.authenticate_user(username, password, role_switch)
+            if not user:
+                try:
+                    audit_logger.record_audit(
+                        category="security",
+                        action="auth_login_failed",
+                        user=username or role_switch or "unknown",
+                        role="unknown",
+                        details={"username": username, "role_switch": role_switch},
+                        status="failed",
+                        ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                    )
+                except Exception:
+                    pass
+                self._respond_json(401, {"error": "Invalid credentials or unauthorized role"})
+                return
+
+            try:
+                audit_logger.record_audit(
+                    category="security",
+                    action="auth_login_success",
+                    user=user["username"],
+                    role=user["role"],
+                    details={"name": user.get("name"), "department": user.get("department")},
+                    status="success",
+                    ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                )
+            except Exception:
+                pass
+
+            self._respond_json(200, {
+                "status": "ok",
+                "token": user.get("token"),
+                "user": user,
+            })
+            return
+
+        elif path == "/api/auth/register":
+            import auth_manager, audit_logger
+            ok, msg, new_user = auth_manager.create_user_profile(payload)
+            if not ok:
+                self._respond_json(400, {"error": msg})
+                return
+
+            auth_user = auth_manager.authenticate_user(new_user["username"], payload.get("password"))
+            try:
+                audit_logger.record_audit(
+                    category="security",
+                    action="create_profile",
+                    user=new_user["username"],
+                    role=new_user["role"],
+                    details={
+                        "name": new_user.get("name"),
+                        "department": new_user.get("department"),
+                        "badge_id": new_user.get("badge_id"),
+                    },
+                    status="success",
+                    ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                )
+            except Exception:
+                pass
+
+            self._respond_json(201, {
+                "status": "ok",
+                "message": msg,
+                "token": auth_user.get("token") if auth_user else None,
+                "user": auth_user or new_user,
+            })
+            return
+
+        elif path == "/api/interventions":
             name = payload.get("name")
             type_ = payload.get("type", "Check Dam")
             lat = payload.get("lat")
@@ -594,6 +735,20 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 return
 
             iv_id = reg.add_intervention(name, type_, float(lat), float(lon), notes)
+            try:
+                import audit_logger
+                curr_user = self._get_current_user()
+                audit_logger.record_audit(
+                    category="intervention",
+                    action="add_intervention",
+                    user=curr_user.get("username", "official"),
+                    role=curr_user.get("role", "official"),
+                    details={"name": name, "type": type_, "lat": float(lat), "lon": float(lon), "id": iv_id},
+                    status="success",
+                    ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                )
+            except Exception:
+                pass
             self._respond_json(201, {"id": iv_id, "status": "created"})
 
         elif path == "/api/pipeline/cancel":
@@ -641,6 +796,24 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
             cache.set_json(f"meta:{site_key}", target_meta, ttl=86400)
             cache.set_json("meta:custom_live", target_meta, ttl=86400)
 
+            try:
+                import audit_logger
+                curr_user = self._get_current_user()
+                audit_logger.record_audit(
+                    category="source_switch",
+                    action="switch_source",
+                    user=curr_user.get("username", "official"),
+                    role=curr_user.get("role", "official"),
+                    details={
+                        "site_key": site_key,
+                        "target_source": target_source,
+                    },
+                    status="success",
+                    ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                )
+            except Exception:
+                pass
+
             print(f"--> [Pipeline] Switched active raster source for '{site_key}' to: {target_source.upper()}", flush=True)
             self._respond_json(200, {
                 "status": "ok",
@@ -674,6 +847,30 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 t2_target = payload.get("t2_date") or target_date
 
                 bbox = bbox_around(lat, lon, radius_km)
+
+                try:
+                    import audit_logger
+                    curr_user = self._get_current_user()
+                    audit_logger.record_audit(
+                        category="pipeline",
+                        action="pipeline_run",
+                        user=curr_user.get("username", "official"),
+                        role=curr_user.get("role", "official"),
+                        details={
+                            "aoi_name": name,
+                            "lat": lat,
+                            "lon": lon,
+                            "radius_km": radius_km,
+                            "target_date": target_date or "latest",
+                            "t1_date": t1_target,
+                            "t2_date": t2_target,
+                            "run_id": run_id,
+                        },
+                        status="started",
+                        ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                    )
+                except Exception:
+                    pass
 
                 print(f"\n=======================================================")
                 print(f"--> [Pipeline] INCOMING REQUEST [{run_id}] for '{name}' at ({lat:.4f}, {lon:.4f}) with radius {radius_km:.1f} km")

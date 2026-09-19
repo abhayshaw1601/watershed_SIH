@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { cn } from "@/lib/cn";
-import { type SiteKey, type SiteMeta } from "@/lib/watershed-data";
+import { type SiteMeta } from "@/lib/watershed-data";
 import Badge from "@/components/ui/Badge";
-import { Radio, Check, X, Crosshair } from "@phosphor-icons/react";
+import Link from "next/link";
+import { Radio, Check, X, Crosshair, ShieldCheck, User, LockKey, ArrowRight } from "@phosphor-icons/react";
+import { useAuth } from "@/lib/auth";
+import AuthModal from "@/components/AuthModal";
 import LULCTab from "@/components/tabs/LULCTab";
 import ChangeTab from "@/components/tabs/ChangeTab";
 import HealthTab from "@/components/tabs/HealthTab";
@@ -14,6 +17,7 @@ import InterventionsTab from "@/components/tabs/InterventionsTab";
 import SimulatorTab from "@/components/tabs/SimulatorTab";
 import ValidationTab from "@/components/tabs/ValidationTab";
 import BhuvanReportTab from "@/components/tabs/BhuvanReportTab";
+import AuditTab from "@/components/tabs/AuditTab";
 import LocationPicker, { type CustomLocation } from "@/components/LocationPicker";
 
 const MapTab = dynamic(() => import("@/components/tabs/MapTab"), {
@@ -36,14 +40,17 @@ const TABS = [
   { key: "map", label: "Map", needsChangePair: false },
   { key: "field", label: "Field Investigation", needsChangePair: false },
   { key: "investigation", label: "Investigation", needsChangePair: false },
-  { key: "bhuvan-report", label: "🇮🇳 ISRO Bhuvan Report", needsChangePair: false, highlight: true },
+  { key: "bhuvan-report", label: "ISRO Bhuvan Report", needsChangePair: false, highlight: true },
   { key: "validation", label: "Scientific Validation", needsChangePair: false },
   { key: "simulator", label: "What-If Simulator", needsChangePair: false },
+  { key: "audit", label: "Statutory Audit", needsChangePair: false, adminOnly: true, highlight: true },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
 
 export default function WatershedApp() {
+  const { user, isAdmin, token, loginAs, isLoaded } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [siteKey, setSiteKey] = useState<string>("custom_live");
   const [customLocation, setCustomLocation] = useState<CustomLocation | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -66,6 +73,28 @@ export default function WatershedApp() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Available tabs filtered strictly by administrative authorization
+  const availableTabs = useMemo(() => {
+    return TABS.filter((t) => !("adminOnly" in t && t.adminOnly) || isAdmin);
+  }, [isAdmin]);
+
+  // Synchronize ?tab=audit URL parameter if authorized
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("tab") === "audit" && isAdmin) {
+        setTab("audit");
+      }
+    }
+  }, [isAdmin]);
+
+  // Demote to default tab if user role changes away from admin while viewing audit
+  useEffect(() => {
+    if (tab === "audit" && !isAdmin) {
+      setTab("land-cover");
+    }
+  }, [isAdmin, tab]);
 
   // Timer for live satellite pipeline
   useEffect(() => {
@@ -197,7 +226,10 @@ export default function WatershedApp() {
       const res = await fetch(`${API_BASE_URL}/api/pipeline/run`, {
         method: "POST",
         signal: controller.signal,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           run_id: runId,
           lat: loc.lat,
@@ -283,6 +315,119 @@ export default function WatershedApp() {
               : "Ingesting Copernicus 30m DEM elevation tile (~35MB) & computing watershed drainage...",
         };
 
+  if (!isLoaded) {
+    return (
+      <div className="mx-auto max-w-4xl rounded-3xl border border-foreground/10 bg-foreground/[0.02] p-16 text-center animate-pulse font-mono text-xs text-muted-foreground">
+        Verifying institutional access credentials...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="relative mx-auto max-w-4xl rounded-3xl border border-foreground/15 bg-background/95 p-8 sm:p-14 shadow-2xl backdrop-blur-md overflow-hidden animate-fade-up">
+        {/* Corner architectural registration marks */}
+        <span className="pointer-events-none absolute top-3.5 left-3.5 font-mono text-[11px] text-foreground/30 select-none">+</span>
+        <span className="pointer-events-none absolute top-3.5 right-3.5 font-mono text-[11px] text-foreground/30 select-none">+</span>
+        <span className="pointer-events-none absolute bottom-3.5 left-3.5 font-mono text-[11px] text-foreground/30 select-none">+</span>
+        <span className="pointer-events-none absolute bottom-3.5 right-3.5 font-mono text-[11px] text-foreground/30 select-none">+</span>
+
+        <div className="flex flex-col items-center text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-foreground/15 bg-foreground/5 text-foreground shadow-xs">
+            <LockKey size={30} weight="bold" />
+          </div>
+
+          <div className="mt-4 font-mono text-xs uppercase tracking-widest text-amber font-semibold">
+            Institutional Access Control · SIH 2026 PS-26015
+          </div>
+
+          <h2 className="mt-2 font-display text-3xl sm:text-5xl tracking-tight text-foreground">
+            Entry Restricted: Select Access Role
+          </h2>
+
+          <p className="mt-3 max-w-2xl font-sans text-sm sm:text-base text-muted-foreground leading-relaxed">
+            Watershed Signal requires institutional authorization to access operational satellite rasters, DEM hydrology pipelines, and AI land-cover models. Choose an access role below to log in:
+          </p>
+
+          <div className="mt-8 grid w-full gap-5 sm:grid-cols-2 text-left">
+            {/* Option 1: Official */}
+            <div className="flex flex-col justify-between rounded-2xl border border-sage/40 bg-sage/5 p-6 sm:p-7 hover:border-sage hover:bg-sage/10 transition-all shadow-xs">
+              <div>
+                <div className="flex items-center justify-between">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sage/20 text-sage">
+                    <User size={24} weight="bold" />
+                  </div>
+                  <span className="rounded-full bg-sage/20 px-2.5 py-0.5 font-mono text-[10px] font-bold text-sage uppercase">
+                    Field Operations
+                  </span>
+                </div>
+                <h3 className="mt-4 font-sans text-xl font-semibold text-foreground">
+                  Official Role
+                </h3>
+                <p className="mt-1.5 font-mono text-xs text-muted-foreground leading-relaxed">
+                  Full operational access to 9 core watershed tabs, live Model 1 AI inference, Sentinel/Bhoonidhi ingestion, and field logs.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => loginAs("official")}
+                className="mt-6 w-full flex items-center justify-center gap-2 rounded-xl bg-sage text-background py-3 font-sans text-sm font-semibold hover:bg-sage/90 transition-all cursor-pointer shadow-xs"
+              >
+                <span>Enter as Official →</span>
+              </button>
+            </div>
+
+            {/* Option 2: Admin */}
+            <div className="flex flex-col justify-between rounded-2xl border border-amber/40 bg-amber/5 p-6 sm:p-7 hover:border-amber hover:bg-amber/10 transition-all shadow-xs">
+              <div>
+                <div className="flex items-center justify-between">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber/20 text-amber">
+                    <ShieldCheck size={24} weight="bold" />
+                  </div>
+                  <span className="rounded-full bg-amber/20 px-2.5 py-0.5 font-mono text-[10px] font-bold text-amber uppercase">
+                    Statutory Auditor
+                  </span>
+                </div>
+                <h3 className="mt-4 font-sans text-xl font-semibold text-foreground">
+                  Admin Role
+                </h3>
+                <p className="mt-1.5 font-mono text-xs text-muted-foreground leading-relaxed">
+                  All official operational features plus exclusive access to the <strong>Statutory Audit Console</strong>, user search history & telemetry logs.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => loginAs("admin")}
+                className="mt-6 w-full flex items-center justify-center gap-2 rounded-xl bg-amber text-background py-3 font-sans text-sm font-semibold hover:bg-amber/90 transition-all cursor-pointer shadow-xs"
+              >
+                <span>Enter as Admin →</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-8 font-mono text-xs text-muted-foreground flex flex-wrap items-center justify-center gap-2">
+            <span>Have custom officer credentials?</span>
+            <button
+              type="button"
+              onClick={() => setShowAuthModal(true)}
+              className="text-foreground font-semibold hover:underline cursor-pointer"
+            >
+              Sign In with Password
+            </button>
+            <span>·</span>
+            <Link href="/register" className="text-foreground font-semibold hover:underline">
+              Create Officer Profile
+            </Link>
+          </div>
+        </div>
+
+        <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
+      </div>
+    );
+  }
+
   return (
     <div className="relative rounded-3xl border border-foreground/15 bg-background/95 p-6 sm:p-10 shadow-2xl backdrop-blur-md overflow-hidden animate-fade-up">
       {/* Corner architectural registration marks */}
@@ -315,7 +460,7 @@ export default function WatershedApp() {
                   ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
                   : "border-foreground/15 bg-background text-foreground/80"
               )}>
-                <span>🛰️</span>
+                <Radio size={14} weight="bold" />
                 <span>{meta.primary_source}</span>
                 {meta.primary_source.includes("Bhoonidhi") && (
                   <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.2 font-mono text-[9px] uppercase tracking-wider text-emerald-300">
@@ -345,7 +490,7 @@ export default function WatershedApp() {
               )}
               title="Open official ISRO Bhuvan 50k LULC ground-truth audit"
             >
-              <span>🇮🇳</span>
+              <span className="rounded-full bg-amber/20 px-1.5 py-0.2 font-mono text-[9px] uppercase tracking-wider font-bold">ISRO</span>
               <span>ISRO Bhuvan Report</span>
               <span className="rounded-full bg-amber/20 px-1.5 py-0.2 font-mono text-[9px] uppercase tracking-wider">
                 {meta?.bhuvan_stats?.status === "success" ? "Live Verified" : "50k Standard"}
@@ -353,7 +498,7 @@ export default function WatershedApp() {
             </button>
             {(customLocation?.targetDate || meta?.t2_date) && (
               <span className="rounded-full border border-amber/40 bg-amber/10 px-3 py-1 font-mono text-xs font-semibold text-amber flex items-center gap-1.5">
-                <span>📅</span>
+                <Radio size={14} weight="bold" />
                 <span>Timeline: {meta?.t2_date || customLocation?.targetDate}</span>
               </span>
             )}
@@ -408,7 +553,7 @@ export default function WatershedApp() {
       {cancelNotice && !isAnalyzing && (
         <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-amber/40 bg-amber/10 px-5 py-3.5 shadow-sm text-sm font-mono text-foreground animate-fade-up">
           <div className="flex items-center gap-2.5">
-            <span className="text-amber text-base">⚠️</span>
+            <Crosshair size={16} weight="bold" className="text-amber" />
             <span>{cancelNotice}</span>
           </div>
           <button
@@ -533,7 +678,7 @@ export default function WatershedApp() {
                     onClick={() => setTab("bhuvan-report")}
                     className="rounded-full bg-amber/20 hover:bg-amber/30 border border-amber/40 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-amber uppercase tracking-wider flex items-center gap-1 transition-colors cursor-pointer"
                   >
-                    <span>🇮🇳</span>
+                    <span className="rounded-full bg-amber/30 px-1 py-0.2 font-mono text-[9px] font-bold text-amber">ISRO</span>
                     <span>ISRO Bhuvan 50k Ground Truth Linked →</span>
                   </button>
                 )}
@@ -563,7 +708,7 @@ export default function WatershedApp() {
                 <div className="flex items-center gap-3.5">
                   <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber/20 border border-amber/40 text-amber text-xl shadow-xs">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-xl bg-amber opacity-30" />
-                    🛰️
+                    <Radio size={20} weight="bold" />
                   </div>
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -596,7 +741,7 @@ export default function WatershedApp() {
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 text-xl shadow-xs">
-                    🇮🇳
+                    <Check size={20} weight="bold" />
                   </div>
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -633,7 +778,7 @@ export default function WatershedApp() {
                       disabled={isSwitchingSource}
                       className="flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 px-5 py-2.5 font-sans text-sm font-bold text-black shadow-lg shadow-emerald-500/25 transition-all cursor-pointer"
                     >
-                      <span>🛰️</span>
+                      <Radio size={14} weight="bold" />
                       <span>{isSwitchingSource ? "Switching..." : "Click to View Bhoonidhi Output"}</span>
                       <span className="rounded-md bg-black/20 px-1.5 py-0.5 font-mono text-[10px]">Tier 1</span>
                     </button>
@@ -644,7 +789,7 @@ export default function WatershedApp() {
                       disabled={isSwitchingSource}
                       className="flex items-center gap-2 rounded-xl border border-foreground/20 bg-background hover:bg-foreground/5 active:scale-95 px-4 py-2 font-mono text-xs text-foreground transition-all cursor-pointer"
                     >
-                      <span>🔄</span>
+                      <Radio size={14} weight="bold" />
                       <span>{isSwitchingSource ? "Switching..." : "Switch to Sentinel-2 Preview"}</span>
                     </button>
                   )}
@@ -657,7 +802,7 @@ export default function WatershedApp() {
           {meta.bhoonidhi_status === "unavailable" && !dismissedBhoonidhiNotice && (
             <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-foreground/15 bg-background/80 px-5 py-3.5 shadow-sm text-sm font-mono text-muted-foreground animate-fade-up">
               <div className="flex items-center gap-2.5">
-                <span>ℹ️</span>
+                <ShieldCheck size={16} weight="bold" className="text-amber" />
                 <span>ISRO Bhoonidhi: No cloud-free Resourcesat-2A scene found in catalog for this date/coordinate. Sentinel-2 preview remains active.</span>
               </div>
               <button
@@ -679,7 +824,7 @@ export default function WatershedApp() {
           role="tablist"
           aria-label="Watershed views"
         >
-          {TABS.map((t) => {
+          {availableTabs.map((t) => {
             const disabled = t.needsChangePair && meta ? !meta.has_change_pair : false;
             const isActive = tab === t.key;
             const isHighlight = "highlight" in t && t.highlight;
@@ -691,7 +836,7 @@ export default function WatershedApp() {
                 onClick={() => !disabled && setTab(t.key)}
                 disabled={disabled}
                 className={cn(
-                  "whitespace-nowrap rounded-xl px-4 py-2.5 font-mono text-xs uppercase tracking-wider transition-all",
+                  "whitespace-nowrap rounded-xl px-4 py-2.5 font-mono text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5",
                   isActive
                     ? isHighlight
                       ? "bg-amber text-black shadow-sm font-bold border border-amber"
@@ -702,7 +847,8 @@ export default function WatershedApp() {
                   disabled && "cursor-not-allowed opacity-30 hover:bg-transparent"
                 )}
               >
-                {t.label}
+                {t.key === "audit" && <ShieldCheck size={14} weight="bold" />}
+                <span>{t.label}</span>
               </button>
             );
           })}
@@ -784,7 +930,9 @@ export default function WatershedApp() {
             </div>
           </div>
         ) : !meta ? (
-          tab === "validation" ? (
+          tab === "audit" && isAdmin ? (
+            <AuditTab />
+          ) : tab === "validation" ? (
             <ValidationTab meta={meta} />
           ) : tab === "bhuvan-report" ? (
             <BhuvanReportTab meta={meta} onSelectTab={(t) => setTab(t as TabKey)} />
@@ -814,7 +962,7 @@ export default function WatershedApp() {
                   }
                   className="rounded-full border border-amber/50 bg-amber/10 px-3.5 py-1 text-foreground hover:bg-amber/20 font-semibold transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
                 >
-                  <span className="text-amber">🇮🇳</span>
+                  <span className="rounded-full bg-amber/20 px-1.5 py-0.2 font-mono text-[9px] text-amber font-bold">ISRO</span>
                   <span>Kadwanchi Watershed (ISRO Bhoonidhi + Bhuvan)</span>
                 </button>
                 <button
@@ -867,6 +1015,7 @@ export default function WatershedApp() {
           )
         ) : (
           <>
+            {tab === "audit" && isAdmin && <AuditTab />}
             {tab === "land-cover" && <LULCTab key={`${siteKey}_${activeSource}_${sourceVersion}`} site={siteKey} meta={meta} />}
             {tab === "change" && <ChangeTab key={`${siteKey}_${activeSource}_${sourceVersion}`} site={siteKey} meta={meta} />}
             {tab === "health" && <HealthTab meta={meta} onNavigateToSimulator={() => setTab("simulator")} />}
