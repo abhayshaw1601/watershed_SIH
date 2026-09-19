@@ -155,3 +155,12 @@ together when reporting status.
     The live Bhuvan IWMP GIS geoportal URL must strictly be `https://bhuvan-app1.nrsc.gov.in/iwmp/`.
     The report must support high-contrast official `@media print` layout and tripartite sign-offs
     (NRSC/ISRO, MoRD/WDC-PMKSY, Project Lead).
+
+20. **3-Tier Satellite Ingestion & MongoDB GridFS Raster Caching.** The optical satellite ingestion seam
+    (`project/src/data_adapter.py`) enforces a strict 3-tier hierarchy:
+    - **Tier 0**: MongoDB GridFS pre-clipped 6-channel float32 cache (`watershed_db.raster_cache`, <50ms read/write).
+    - **Tier 1**: ISRO Bhoonidhi STAC catalog & Resourcesat-2/2A LISS-III `/vsizip/` streaming (`bhoonidhi_client.py`)
+      with 1200s token caching and a 15s download circuit breaker.
+    - **Tier 2**: Hardened AWS Open Data Sentinel-2 L2A COG range-reading (`data_download.py`) using
+      `GDAL_HTTP_VERSION: "1.1"`, `GDAL_HTTP_MULTIPLEX: "NO"`, and a 12s socket timeout to prevent network stalls.
+    All ingestion events must be recorded in `watershed_db.audit_logs` for statutory audit compliance.

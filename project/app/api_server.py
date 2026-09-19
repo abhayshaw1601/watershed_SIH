@@ -9,7 +9,10 @@ Runs with:
 
 import io
 import json
+import queue
 import sys
+import threading
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone
@@ -45,7 +48,7 @@ except ImportError:
 
 from config import (
     DATA_PROCESSED, MODELS_DIR, CLASS_NAMES, CLASS_COLORS, CHANGE_CLASS_NAMES,
-    NUM_CLASSES, NODATA_CLASS
+    NUM_CLASSES, NODATA_CLASS, atomic_raster_write
 )
 from cache_manager import cache
 
@@ -75,6 +78,9 @@ WEB_DEMO_DIR = PROJECT_ROOT.parent / "web" / "public" / "demo-data"
 # Global cached model
 _cached_model = None
 _cached_device = None
+
+ACTIVE_PIPELINES: dict = {}
+PIPELINE_LOCK = threading.Lock()
 
 CHANGE_CLASS_COLORS = {
     0: (230, 230, 230),
@@ -129,6 +135,196 @@ def class_hectares(class_map: np.ndarray, pixel_area_m2: float = 100.0) -> dict:
     return out
 
 
+# Ponytail Strategy 1 & 2: Asynchronous Bhoonidhi Ingestion Queue & Daemon Worker
+BHOONIDHI_JOB_QUEUE = queue.Queue(maxsize=5)
+BHOONIDHI_STATUS: dict = {}
+BHOONIDHI_STATUS_LOCK = threading.Lock()
+
+
+def _process_bhoonidhi_background_job(site_key, bbox, name, radius_km, t1_target, t2_target):
+    """Processes background LISS-III ingestion, model inference, and progressive upgrade."""
+    with BHOONIDHI_STATUS_LOCK:
+        BHOONIDHI_STATUS[site_key] = "processing"
+    print(f"\n--> [Bhoonidhi Worker] Initiating background sovereign ingestion for '{name}' [{site_key}]...", flush=True)
+
+    try:
+        from data_adapter import ingest_bhoonidhi_ephemeral
+        from inference_demo import predict_class_map
+        from tier1_fallback import run_tier1, summarize_changes
+        from recommendation_engine import compute_health_score, ndvi_trend
+        from aoi_picker import _model_lock
+
+        # 1. Ephemeral Ingestion of T2 (Recent date)
+        res_t2 = ingest_bhoonidhi_ephemeral(bbox, date_tag="T2", target_date=t2_target, timeout=360.0)
+        if not res_t2:
+            print(f"--> [Bhoonidhi Worker] All online LISS-III candidate scenes were unavailable for T2 ({name}) on NRSC storage. Sentinel-2 preview remains active.", flush=True)
+            with BHOONIDHI_STATUS_LOCK:
+                BHOONIDHI_STATUS[site_key] = "unavailable"
+            m = cache.get_json(f"meta:{site_key}")
+            if m:
+                m["bhoonidhi_status"] = "unavailable"
+                cache.set_json(f"meta:{site_key}", m, ttl=86400)
+            return
+
+        dt2, source_label_t2, stack_t2, meta_t2 = res_t2
+
+        # 2. Ephemeral Ingestion of T1 (Historical date, optional; max 60s to avoid delaying T2 ready notification)
+        res_t1 = None
+        if t1_target:
+            res_t1 = ingest_bhoonidhi_ephemeral(bbox, date_tag="T1", target_date=t1_target, timeout=60.0)
+
+        # 3. Model 1 U-Net Inference
+        model, device = get_model()
+        LIVE_DIR = DATA_PROCESSED / "live"
+        LIVE_DIR.mkdir(parents=True, exist_ok=True)
+
+        from rasterio.transform import from_origin
+        minx, miny, maxx, maxy = bbox
+        h2, w2 = stack_t2.shape[1], stack_t2.shape[2]
+        prof_t2 = meta_t2 if (isinstance(meta_t2, dict) and "driver" in meta_t2) else (meta_t2.get("profile") if isinstance(meta_t2, dict) else None)
+        if not prof_t2:
+            prof_t2 = {
+                "driver": "GTiff",
+                "height": h2,
+                "width": w2,
+                "count": 6,
+                "dtype": "float32",
+                "crs": "EPSG:4326",
+                "transform": from_origin(minx, maxy, (maxx - minx) / max(1, w2), (maxy - miny) / max(1, h2)),
+            }
+
+        stack_path_t2 = LIVE_DIR / f"bg_{site_key}_T2_stack6.tif"
+        atomic_raster_write(stack_path_t2, stack_t2, prof_t2)
+
+        with _model_lock:
+            t2_map, img_t2, _ = predict_class_map(model, stack_path_t2, device)
+
+        if res_t1:
+            stack_t1 = res_t1[2]
+            h1, w1 = stack_t1.shape[1], stack_t1.shape[2]
+            prof_t1 = res_t1[3] if (isinstance(res_t1[3], dict) and "driver" in res_t1[3]) else (res_t1[3].get("profile") if isinstance(res_t1[3], dict) else None)
+            if not prof_t1:
+                prof_t1 = {
+                    "driver": "GTiff",
+                    "height": h1,
+                    "width": w1,
+                    "count": 6,
+                    "dtype": "float32",
+                    "crs": "EPSG:4326",
+                    "transform": from_origin(minx, maxy, (maxx - minx) / max(1, w1), (maxy - miny) / max(1, h1)),
+                }
+            stack_path_t1 = LIVE_DIR / f"bg_{site_key}_T1_stack6.tif"
+            atomic_raster_write(stack_path_t1, stack_t1, prof_t1)
+            with _model_lock:
+                t1_map, img_t1, _ = predict_class_map(model, stack_path_t1, device)
+            t1_source = res_t1[1]
+            t1_date = str(res_t1[0])
+            stack_path_t1.unlink(missing_ok=True)
+            rgb_t1 = colorize(t1_map, CLASS_COLORS)
+            t1_bytes = img_to_bytes(Image.fromarray(rgb_t1))
+        else:
+            # Preserve original Sentinel-2 T1 baseline image and date if Bhoonidhi T1 is not available
+            sent_m = cache.get_json(f"sentinel_meta:{site_key}") or cache.get_json("sentinel_meta:custom_live") or {}
+            t1_source = sent_m.get("t1_source", "Copernicus Sentinel-2 (Historical Baseline)")
+            t1_date = sent_m.get("t1_date", str(dt2))
+            t1_bytes = cache.get_bytes(f"image:{site_key}:sentinel_t1.png") or cache.get_bytes(f"image:custom_live:sentinel_t1.png")
+            t1_map = t2_map
+            img_t1 = img_t2
+            if t1_bytes is None:
+                rgb_t1 = colorize(t1_map, CLASS_COLORS)
+                t1_bytes = img_to_bytes(Image.fromarray(rgb_t1))
+
+        stack_path_t2.unlink(missing_ok=True)
+
+        # 4. Metrics & Rasters
+        change_map = run_tier1(t1_map, t2_map)
+        health = compute_health_score(t2_map)
+        trend = ndvi_trend(img_t1, img_t2)
+
+        if res_t1:
+            rgb_t1 = colorize(t1_map, CLASS_COLORS)
+            t1_bytes = img_to_bytes(Image.fromarray(rgb_t1))
+        rgb_t2 = colorize(t2_map, CLASS_COLORS)
+        rgb_ch = colorize(change_map, CHANGE_CLASS_COLORS)
+
+        t2_bytes = img_to_bytes(Image.fromarray(rgb_t2))
+        ch_bytes = img_to_bytes(Image.fromarray(rgb_ch))
+
+        # Save Bhoonidhi rasters with bhoonidhi_ prefix (staged for user activation)
+        bhoonidhi_rasters = {
+            "t1.png": t1_bytes,
+            "t2.png": t2_bytes,
+            "classmap_t1.png": t1_bytes,
+            "classmap_t2.png": t2_bytes,
+            "change.png": ch_bytes,
+        }
+        for fname, bdata in bhoonidhi_rasters.items():
+            cache.set_bytes(f"image:{site_key}:bhoonidhi_{fname}", bdata, ttl=86400)
+            cache.set_bytes(f"image:custom_live:bhoonidhi_{fname}", bdata, ttl=86400)
+
+        change_summary_raw = summarize_changes(change_map)
+        change_summary = {
+            sname: {"pixels": int(s["pixels"]), "hectares": float(s["hectares"])}
+            for sname, s in change_summary_raw.items()
+        }
+
+        # Build separate Bhoonidhi metadata
+        current_meta = cache.get_json(f"meta:{site_key}") or {}
+        bhoonidhi_meta = dict(current_meta)
+        bhoonidhi_meta.update({
+            "primary_source": source_label_t2,
+            "t2_source": source_label_t2,
+            "t2_date": str(dt2),
+            "health_score": round(float(health), 1),
+            "class_breakdown": class_hectares(t2_map),
+            "change_summary": change_summary,
+            "ndvi_trend": round(float(trend), 4),
+            "bhoonidhi_status": "ready",
+            "bhoonidhi_verified": True,
+            "active_source": "bhoonidhi",
+        })
+        if res_t1:
+            bhoonidhi_meta["t1_source"] = t1_source
+            bhoonidhi_meta["t1_date"] = t1_date
+
+        cache.set_json(f"bhoonidhi_meta:{site_key}", bhoonidhi_meta, ttl=86400)
+        cache.set_json("bhoonidhi_meta:custom_live", bhoonidhi_meta, ttl=86400)
+
+        # Notify that Bhoonidhi is ready while keeping current Sentinel view active
+        current_meta["bhoonidhi_status"] = "ready"
+        current_meta["bhoonidhi_verified"] = True
+        cache.set_json(f"meta:{site_key}", current_meta, ttl=86400)
+        cache.set_json("meta:custom_live", current_meta, ttl=86400)
+
+        with BHOONIDHI_STATUS_LOCK:
+            BHOONIDHI_STATUS[site_key] = "ready"
+        print(f"--> [Bhoonidhi Worker] BHOONIDHI INGESTION COMPLETE for '{name}' [{site_key}]! (Ready for user activation)", flush=True)
+    except Exception as e:
+        print(f"--> [Bhoonidhi Worker] Error upgrading '{name}': {e}", flush=True)
+        with BHOONIDHI_STATUS_LOCK:
+            BHOONIDHI_STATUS[site_key] = "failed"
+
+
+def _bhoonidhi_worker():
+    """Background daemon worker for processing asynchronous Bhoonidhi ingestion."""
+    while True:
+        try:
+            job = BHOONIDHI_JOB_QUEUE.get()
+            if job is None:
+                break
+            site_key, bbox, name, radius_km, t1_target, t2_target = job
+            _process_bhoonidhi_background_job(site_key, bbox, name, radius_km, t1_target, t2_target)
+            BHOONIDHI_JOB_QUEUE.task_done()
+        except Exception as e:
+            print(f"--> [Bhoonidhi Worker Loop] Error: {e}", flush=True)
+            time.sleep(1)
+
+
+# Start single background daemon worker thread (Ponytail standard library)
+_worker_thread = threading.Thread(target=_bhoonidhi_worker, daemon=True, name="bhoonidhi_worker")
+_worker_thread.start()
+
+
 class WatershedApiHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Custom clean stdout logging with instant flush
@@ -139,6 +335,28 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+    def _get_current_user(self) -> dict:
+        """Extract user from Authorization: Bearer <token> or query param."""
+        auth_header = self.headers.get("Authorization", "")
+        token = None
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        if not token:
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            token = qs.get("token", [None])[0]
+
+        if token:
+            try:
+                import auth_manager
+                user = auth_manager.verify_token(token)
+                if user:
+                    return user
+            except Exception:
+                pass
+
+        return {"username": "anonymous_official", "role": "official", "name": "Field Officer"}
 
     def do_OPTIONS(self):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -192,16 +410,23 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
         elif path == "/api/bhuvan/status":
             try:
                 from data_adapter import get_bhuvan_token, find_best_bhoonidhi_scene
+                import mongo_raster_cache as mrc
                 bhuvan_token = get_bhuvan_token()
                 bhoonidhi_match = find_best_bhoonidhi_scene()
                 scene_name = str(bhoonidhi_match[2] if len(bhoonidhi_match) > 2 else bhoonidhi_match[1]) if bhoonidhi_match else None
-                print(f"[{timestamp}] [API] /api/bhuvan/status -> Bhuvan: {'LIVE TOKEN' if bhuvan_token else 'NOT SET'} | Bhoonidhi: {scene_name or 'None'} | Cache: {cache.backend_name.upper()}", flush=True)
+                mongo_ok = mrc._init_mongo()
+                cached_count = mrc._mongo_db.raster_meta.count_documents({}) if mongo_ok else 0
+                bhoonidhi_api_user = os.environ.get("BHOONIDHI_USER", "")
+                print(f"[{timestamp}] [API] /api/bhuvan/status -> Bhuvan: {'LIVE TOKEN' if bhuvan_token else 'NOT SET'} | Bhoonidhi: {scene_name or 'None'} | Mongo: {'CONNECTED (' + str(cached_count) + ' cached)' if mongo_ok else 'OFFLINE'} | Cache: {cache.backend_name.upper()}", flush=True)
                 self._respond_json(200, {
                     "status": "online",
                     "bhuvan_connected": bool(bhuvan_token),
                     "bhuvan_token_configured": bool(bhuvan_token),
-                    "bhoonidhi_active": bool(bhoonidhi_match),
+                    "bhoonidhi_active": bool(bhoonidhi_match or bhoonidhi_api_user),
                     "bhoonidhi_scene": scene_name,
+                    "bhoonidhi_api_configured": bool(bhoonidhi_api_user),
+                    "mongo_cache_active": mongo_ok,
+                    "mongo_cached_rasters": cached_count,
                     "cache_backend": cache.backend_name,
                     "fallback_tier": "AWS S3 Open Data (Copernicus GLO-30 / Sentinel-2 L2A)",
                 })
@@ -238,6 +463,58 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
             logs = read_validation_log()
             self._respond_json(200, logs)
 
+        elif path == "/api/auth/me":
+            user = self._get_current_user()
+            self._respond_json(200, {"status": "ok", "user": user})
+
+        elif path == "/api/audit-logs":
+            user = self._get_current_user()
+            if user.get("role") != "admin":
+                try:
+                    import audit_logger
+                    audit_logger.record_audit(
+                        category="security",
+                        action="unauthorized_audit_access",
+                        user=user.get("username", "anonymous"),
+                        role=user.get("role", "unknown"),
+                        details={"path": path, "reason": "Non-admin attempted to access audit logs"},
+                        status="rejected",
+                        ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                    )
+                except Exception:
+                    pass
+                self._respond_json(403, {"error": "Forbidden: Statutory Audit Console is restricted to Admin role"})
+                return
+
+            try:
+                import audit_logger
+                qs = parse_qs(parsed.query)
+                category = qs.get("category", [None])[0]
+                q_filter = qs.get("q", [None])[0]
+                limit = int(qs.get("limit", [100])[0])
+                logs = audit_logger.get_audit_logs(limit=limit, category=category, query=q_filter)
+                summary = audit_logger.get_audit_summary()
+                self._respond_json(200, {
+                    "status": "ok",
+                    "count": len(logs),
+                    "summary": summary,
+                    "logs": logs,
+                })
+            except Exception as e:
+                self._respond_json(500, {"error": str(e)})
+
+        elif path == "/api/pipeline/bhoonidhi-status":
+            qs = parse_qs(parsed.query)
+            s_key = qs.get("site_key", [""])[0]
+            with BHOONIDHI_STATUS_LOCK:
+                st = BHOONIDHI_STATUS.get(s_key, "idle")
+            if st != "ready":
+                cached_m = cache.get_json(f"meta:{s_key}")
+                if cached_m and (cached_m.get("bhoonidhi_status") == "ready" or cached_m.get("primary_source", "").startswith("ISRO Bhoonidhi")):
+                    st = "ready"
+            b_meta = cache.get_json(f"bhoonidhi_meta:{s_key}")
+            self._respond_json(200, {"status": st, "site_key": s_key, "bhoonidhi_meta": b_meta})
+
         elif path == "/api/geocode":
             qs = parse_qs(parsed.query)
             query = qs.get("q", [""])[0]
@@ -250,6 +527,20 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 res = geocode(query)
                 if res:
                     lat, lon, display_name = res
+                    try:
+                        import audit_logger
+                        curr_user = self._get_current_user()
+                        audit_logger.record_audit(
+                            category="search",
+                            action="geocode_search",
+                            user=curr_user.get("username", "official"),
+                            role=curr_user.get("role", "official"),
+                            details={"query": query, "lat": lat, "lon": lon, "display_name": display_name},
+                            status="success",
+                            ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                        )
+                    except Exception:
+                        pass
                     self._respond_json(200, {"lat": lat, "lon": lon, "display_name": display_name})
                 else:
                     self._respond_json(404, {"error": "Location not found"})
@@ -314,6 +605,19 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
 
         elif path.startswith("/api/sites/"):
             site_name = path.replace("/api/sites/", "").strip("/")
+            qs = parse_qs(parsed.query)
+            requested_source = qs.get("source", [""])[0]
+            if requested_source == "bhoonidhi":
+                b_meta = cache.get_json(f"bhoonidhi_meta:{site_name}")
+                if b_meta:
+                    self._respond_json(200, b_meta)
+                    return
+            elif requested_source == "sentinel":
+                s_meta = cache.get_json(f"sentinel_meta:{site_name}")
+                if s_meta:
+                    self._respond_json(200, s_meta)
+                    return
+
             # Check Redis first
             cached_site_meta = cache.get_json(f"meta:{site_name}")
             if cached_site_meta is not None:
@@ -343,7 +647,83 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
         except Exception:
             payload = {}
 
-        if path == "/api/interventions":
+        if path == "/api/auth/login":
+            import auth_manager, audit_logger
+            username = payload.get("username")
+            password = payload.get("password")
+            role_switch = payload.get("role")
+
+            user = auth_manager.authenticate_user(username, password, role_switch)
+            if not user:
+                try:
+                    audit_logger.record_audit(
+                        category="security",
+                        action="auth_login_failed",
+                        user=username or role_switch or "unknown",
+                        role="unknown",
+                        details={"username": username, "role_switch": role_switch},
+                        status="failed",
+                        ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                    )
+                except Exception:
+                    pass
+                self._respond_json(401, {"error": "Invalid credentials or unauthorized role"})
+                return
+
+            try:
+                audit_logger.record_audit(
+                    category="security",
+                    action="auth_login_success",
+                    user=user["username"],
+                    role=user["role"],
+                    details={"name": user.get("name"), "department": user.get("department")},
+                    status="success",
+                    ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                )
+            except Exception:
+                pass
+
+            self._respond_json(200, {
+                "status": "ok",
+                "token": user.get("token"),
+                "user": user,
+            })
+            return
+
+        elif path == "/api/auth/register":
+            import auth_manager, audit_logger
+            ok, msg, new_user = auth_manager.create_user_profile(payload)
+            if not ok:
+                self._respond_json(400, {"error": msg})
+                return
+
+            auth_user = auth_manager.authenticate_user(new_user["username"], payload.get("password"))
+            try:
+                audit_logger.record_audit(
+                    category="security",
+                    action="create_profile",
+                    user=new_user["username"],
+                    role=new_user["role"],
+                    details={
+                        "name": new_user.get("name"),
+                        "department": new_user.get("department"),
+                        "badge_id": new_user.get("badge_id"),
+                    },
+                    status="success",
+                    ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                )
+            except Exception:
+                pass
+
+            self._respond_json(201, {
+                "status": "ok",
+                "message": msg,
+                "token": auth_user.get("token") if auth_user else None,
+                "user": auth_user or new_user,
+            })
+            return
+
+        elif path == "/api/interventions":
             name = payload.get("name")
             type_ = payload.get("type", "Check Dam")
             lat = payload.get("lat")
@@ -355,17 +735,107 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 return
 
             iv_id = reg.add_intervention(name, type_, float(lat), float(lon), notes)
+            try:
+                import audit_logger
+                curr_user = self._get_current_user()
+                audit_logger.record_audit(
+                    category="intervention",
+                    action="add_intervention",
+                    user=curr_user.get("username", "official"),
+                    role=curr_user.get("role", "official"),
+                    details={"name": name, "type": type_, "lat": float(lat), "lon": float(lon), "id": iv_id},
+                    status="success",
+                    ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                )
+            except Exception:
+                pass
             self._respond_json(201, {"id": iv_id, "status": "created"})
+
+        elif path == "/api/pipeline/cancel":
+            run_id = payload.get("run_id")
+            with PIPELINE_LOCK:
+                if run_id and run_id in ACTIVE_PIPELINES:
+                    ACTIVE_PIPELINES[run_id].set()
+                    print(f"--> [Pipeline] Dispatched cancellation signal for run '{run_id}'", flush=True)
+                else:
+                    for rid, ev in list(ACTIVE_PIPELINES.items()):
+                        ev.set()
+                        print(f"--> [Pipeline] Flagged active run '{rid}' for cancellation", flush=True)
+            self._respond_json(200, {"status": "ok", "message": "Cancellation registered"})
+            return
+
+        elif path == "/api/pipeline/switch-source":
+            site_key = payload.get("site_key", "custom_live")
+            target_source = payload.get("source", "bhoonidhi")  # "bhoonidhi" or "sentinel"
+
+            if target_source == "bhoonidhi":
+                target_meta = cache.get_json(f"bhoonidhi_meta:{site_key}") or cache.get_json("bhoonidhi_meta:custom_live")
+                prefix = "bhoonidhi_"
+            else:
+                target_meta = cache.get_json(f"sentinel_meta:{site_key}") or cache.get_json("sentinel_meta:custom_live")
+                prefix = "sentinel_"
+
+            if not target_meta:
+                target_meta = cache.get_json(f"meta:{site_key}") or cache.get_json("meta:custom_live")
+
+            if not target_meta:
+                self._respond_json(404, {"error": f"No {target_source} data available for {site_key}"})
+                return
+
+            # Copy prefix rasters to active rasters
+            for fname in ["t1.png", "t2.png", "classmap_t1.png", "classmap_t2.png", "change.png"]:
+                b = cache.get_bytes(f"image:{site_key}:{prefix}{fname}") or cache.get_bytes(f"image:custom_live:{prefix}{fname}")
+                if b is not None:
+                    cache.set_bytes(f"image:{site_key}:{fname}", b, ttl=86400)
+                    cache.set_bytes(f"image:custom_live:{fname}", b, ttl=86400)
+
+            target_meta["active_source"] = target_source
+            meta_json_bytes = json.dumps(target_meta, indent=2).encode("utf-8")
+            cache.set_bytes(f"image:{site_key}:meta.json", meta_json_bytes, ttl=86400)
+            cache.set_bytes("image:custom_live:meta.json", meta_json_bytes, ttl=86400)
+            cache.set_json(f"meta:{site_key}", target_meta, ttl=86400)
+            cache.set_json("meta:custom_live", target_meta, ttl=86400)
+
+            try:
+                import audit_logger
+                curr_user = self._get_current_user()
+                audit_logger.record_audit(
+                    category="source_switch",
+                    action="switch_source",
+                    user=curr_user.get("username", "official"),
+                    role=curr_user.get("role", "official"),
+                    details={
+                        "site_key": site_key,
+                        "target_source": target_source,
+                    },
+                    status="success",
+                    ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                )
+            except Exception:
+                pass
+
+            print(f"--> [Pipeline] Switched active raster source for '{site_key}' to: {target_source.upper()}", flush=True)
+            self._respond_json(200, {
+                "status": "ok",
+                "active_source": target_source,
+                "meta": target_meta,
+            })
+            return
 
         elif path == "/api/pipeline/run":
             lat = payload.get("lat")
             lon = payload.get("lon")
             name = payload.get("name", "Custom Location")
             radius_km = float(payload.get("radius_km", 2.0))
+            run_id = payload.get("run_id") or f"run_{int(time.time()*1000)}"
 
             if lat is None or lon is None:
                 self._respond_json(400, {"error": "Missing lat or lon"})
                 return
+
+            cancel_ev = threading.Event()
+            with PIPELINE_LOCK:
+                ACTIVE_PIPELINES[run_id] = cancel_ev
 
             try:
                 lat = float(lat)
@@ -378,8 +848,32 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
 
                 bbox = bbox_around(lat, lon, radius_km)
 
+                try:
+                    import audit_logger
+                    curr_user = self._get_current_user()
+                    audit_logger.record_audit(
+                        category="pipeline",
+                        action="pipeline_run",
+                        user=curr_user.get("username", "official"),
+                        role=curr_user.get("role", "official"),
+                        details={
+                            "aoi_name": name,
+                            "lat": lat,
+                            "lon": lon,
+                            "radius_km": radius_km,
+                            "target_date": target_date or "latest",
+                            "t1_date": t1_target,
+                            "t2_date": t2_target,
+                            "run_id": run_id,
+                        },
+                        status="started",
+                        ip=self.client_address[0] if self.client_address else "127.0.0.1",
+                    )
+                except Exception:
+                    pass
+
                 print(f"\n=======================================================")
-                print(f"--> [Pipeline] INCOMING REQUEST for '{name}' at ({lat:.4f}, {lon:.4f}) with radius {radius_km:.1f} km")
+                print(f"--> [Pipeline] INCOMING REQUEST [{run_id}] for '{name}' at ({lat:.4f}, {lon:.4f}) with radius {radius_km:.1f} km")
                 print(f"--> [Pipeline] Timeline Preference: T1={t1_target or 'default'} | T2={t2_target or 'default'}")
                 print(f"--> [Pipeline] Bounding Box: {bbox}")
 
@@ -397,12 +891,19 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 model, device = get_model()
                 print(f"--> [Pipeline] Querying live Sentinel-2 / Bhoonidhi STAC imagery & running PyTorch Model 1 U-Net on {device}...", flush=True)
 
+                step_logs = []
+                def on_pipeline_step(m):
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    print(f"[{ts}] [PipelineStep] --> {m}", flush=True)
+                    step_logs.append({"time": ts, "message": m})
+
                 (results, change_map, health, trend, alerts,
                  watershed_mask, drainage_network, pour_point, watershed_caveat, watershed_context) = run_pipeline(
                     bbox, site_key, model, device,
-                    on_step=lambda m: print(f"    --> {m}", flush=True),
+                    on_step=on_pipeline_step,
                     t1_target=t1_target,
                     t2_target=t2_target,
+                    cancel_check=cancel_ev,
                 )
 
                 t1_map = results["T1"]["class_map"]
@@ -518,10 +1019,12 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     "drainage_network.png": drainage_bytes,
                 }
 
-                # Store rasters in Redis / memory cache with 24-hour TTL
+                # Store rasters in Redis / memory cache with 24-hour TTL (including sentinel_ snapshot)
                 for fname, img_data in raster_cache.items():
                     cache.set_bytes(f"image:{site_key}:{fname}", img_data, ttl=86400)
                     cache.set_bytes(f"image:custom_live:{fname}", img_data, ttl=86400)
+                    cache.set_bytes(f"image:{site_key}:sentinel_{fname}", img_data, ttl=86400)
+                    cache.set_bytes(f"image:custom_live:sentinel_{fname}", img_data, ttl=86400)
 
                 # Compute BBox WGS84
                 left, bottom, right, top = bbox
@@ -555,6 +1058,7 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                     "ndvi_trend": round(float(trend), 4),
                     "alerts": alerts,
                     "radius_km": radius_km,
+                    "pipeline_logs": step_logs,
                     "watershed_caveat": watershed_caveat,
                     "watershed_meta": {
                         "watershed_id": watershed_context.get("watershed_id") if isinstance(watershed_context, dict) else None,
@@ -563,6 +1067,29 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                         "area_ha": watershed_context.get("area_ha") if isinstance(watershed_context, dict) else 0.0,
                     } if watershed_context else None,
                 }
+
+                # Ponytail Strategy 1 & 2: Asynchronous Bhoonidhi sovereign status & queue
+                if meta.get("primary_source", "").startswith("ISRO Bhoonidhi"):
+                    meta["bhoonidhi_status"] = "ready"
+                    meta["bhoonidhi_verified"] = True
+                    meta["active_source"] = "bhoonidhi"
+                    with BHOONIDHI_STATUS_LOCK:
+                        BHOONIDHI_STATUS[site_key] = "ready"
+                    cache.set_json(f"bhoonidhi_meta:{site_key}", meta, ttl=86400)
+                    cache.set_json("bhoonidhi_meta:custom_live", meta, ttl=86400)
+                else:
+                    meta["bhoonidhi_status"] = "queued"
+                    meta["bhoonidhi_verified"] = False
+                    meta["active_source"] = "sentinel"
+                    with BHOONIDHI_STATUS_LOCK:
+                        BHOONIDHI_STATUS[site_key] = "queued"
+                    cache.set_json(f"sentinel_meta:{site_key}", meta, ttl=86400)
+                    cache.set_json("sentinel_meta:custom_live", meta, ttl=86400)
+                    try:
+                        BHOONIDHI_JOB_QUEUE.put_nowait((site_key, bbox, name, radius_km, t1_target, t2_target))
+                        print(f"--> [Pipeline] Enqueued Bhoonidhi sovereign background ingestion for '{name}' [{site_key}]", flush=True)
+                    except queue.Full:
+                        print(f"--> [Pipeline] Bhoonidhi queue full, skipping background fetch for '{name}'", flush=True)
 
                 meta_json_bytes = json.dumps(meta, indent=2).encode("utf-8")
                 cache.set_bytes(f"image:{site_key}:meta.json", meta_json_bytes, ttl=86400)
@@ -575,19 +1102,34 @@ class WatershedApiHandler(BaseHTTPRequestHandler):
                 print(f"=======================================================\n")
                 self._respond_json(200, {"status": "ok", "siteKey": site_key, "meta": meta})
 
+            except (BrokenPipeError, ConnectionResetError):
+                print(f"--> [Pipeline] Client disconnected before pipeline response could be delivered.", flush=True)
+            except InterruptedError as e:
+                print(f"--> [Pipeline] Run '{run_id}' safely aborted: {e}", flush=True)
+                self._respond_json(200, {"status": "cancelled", "message": "Pipeline run was cancelled by user"})
             except Exception as e:
                 traceback.print_exc()
                 self._respond_json(500, {"error": f"Pipeline execution failed: {str(e)}"})
+            finally:
+                with PIPELINE_LOCK:
+                    ACTIVE_PIPELINES.pop(run_id, None)
 
         else:
             self._respond_json(404, {"error": f"Endpoint '{path}' not found"})
 
     def _respond_json(self, status_code: int, data: any):
-        self.send_response(status_code)
-        self.send_header("Content-Type", "application/json")
-        self._send_cors_headers()
-        self.end_headers()
-        self.wfile.write(json.dumps(data).encode("utf-8"))
+        try:
+            payload = json.dumps(data).encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionResetError):
+            print(f"--> [Server] Client socket disconnected before HTTP {status_code} response could be sent.", flush=True)
+        except Exception as e:
+            print(f"--> [Server] Error delivering HTTP {status_code} response: {e}", flush=True)
 
 
 def run():
@@ -604,7 +1146,8 @@ def run():
     print(f"  • Bhuvan LULC API  : {'CONNECTED (Live Token)' if bhuvan_token else 'OFFLINE (Fallback Active)'}")
     scene_str = str(bhoonidhi_match[2] if len(bhoonidhi_match) > 2 else bhoonidhi_match[1]) if bhoonidhi_match else 'None'
     print(f"  • Bhoonidhi Data   : {bhoonidhi_count} scenes in bhoonidhi_data/ (Active: {scene_str[:25]}...)")
-    print(f"  • Model 1 Status   : {'LOADED (' + MODEL1_PATH.name + ')' if MODEL1_PATH.exists() else 'NOT FOUND'}")
+    model, device = get_model()
+    print(f"  • Model 1 Status   : LOADED on {device} ({MODEL1_PATH.name})")
     print("-" * 65)
     print("  Endpoints:")
     print("    GET  /api/health")
@@ -613,6 +1156,7 @@ def run():
     print("    GET  /api/interventions")
     print("    GET  /api/field-log")
     print("    POST /api/pipeline/run")
+    print("    POST /api/pipeline/cancel")
     print("=" * 65, flush=True)
     try:
         server.serve_forever()

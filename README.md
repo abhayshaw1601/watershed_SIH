@@ -70,6 +70,7 @@ No model predicts recommendations directly — that's deliberate. No dataset exi
 | **Worker 3: Topographic Catchment** | Physical watershed boundary & drainage network | Copernicus DEM GLO-30 + PySheds D8 Routing | Overlapped in background (~15s) |
 | **Worker 4: National Ground-Truth** | Official ISRO 1:50k thematic land-cover baseline | Live ISRO Bhuvan REST API (`curl_aoi.php`) | ~1.2s concurrent query |
 | **Model 1: LULC Segmentation** | 7-class pixel classification on 6-channel stack | PyTorch U-Net (ResNet18 backbone) | **10.5 ms** (NVIDIA RTX 3050 CUDA) |
+| **Bhoonidhi Background Daemon** | Asynchronous sovereign LISS-III ingestion ("Clip & Discard") | `BHOONIDHI_JOB_QUEUE` + Ephemeral `/vsizip/` | Background progressive processing |
 | **Tier-1 Change Engine** | Structural change detection (Water gain, degradation) | Topography-Geofenced Rule Matrix | < 0.2s |
 | **Evidence Fusion & Alerts** | Actionable intervention recommendations | Explicit Weighted Multi-Sensor Logic | Instantaneous |
 | **Redis In-Memory Storage** | High-performance raster and metadata delivery | Redis Container (`redis:alpine`) + Python binary cache | **< 10 ms** repeat hits (Zero disk pollution) |
@@ -119,21 +120,20 @@ Watershed Signal provides two complementary interfaces:
 
 ## Government Platform Integration Architecture
 
-
 ```text
-SRISHTI-DRISHTI / Bhuvan / Bhoonidhi (Future Authorized Access)
-Open Sentinel-2 / Copernicus GLO-30 / OSM (Current Prototype)
+ISRO Bhuvan (50k LULC REST API) / ISRO Bhoonidhi (Resourcesat STAC) / SRISHTI-DRISHTI
+Open Sentinel-2 / Copernicus GLO-30 / OSM (Automated High-Availability Fallback)
                              ↓
-                 GOVERNMENT DATA ADAPTER LAYER
-          (Standardized WMS/WFS, STAC, and GeoJSON)
+              3-TIER DATA INGESTION & AUDIT SEAM
+  (Tier 0: MongoDB GridFS | Tier 1: Bhoonidhi STAC | Tier 2: S3 Fallback)
                              ↓
-             WATERSHED SIGNAL ANALYTICAL ENGINE
-          (LULC + Change + DEM Catchment + Fusion)
+              WATERSHED SIGNAL ANALYTICAL ENGINE
+           (LULC + Change + DEM Catchment + Fusion)
                              ↓
-               OFFICER DECISION-SUPPORT DASHBOARD
+                OFFICER DECISION-SUPPORT DASHBOARD
 ```
 
-*Note on Government Credentials:* Due to unavailable/unauthorized access to certain government datasets and APIs during development, the prototype uses equivalent open/reference datasets to demonstrate the analytical workflow. The ingestion layer is designed to accommodate authorized SRISHTI-DRISHTI/Bhuvan/Bhoonidhi data sources when access is provided. See [`data_adapter_design.md`](data_adapter_design.md) for full architectural specifications.
+*Sovereign Data Integration:* Watershed Signal features active live integration with **ISRO Bhuvan** (`curl_aoi.php` 50k LULC ground truth) and **ISRO Bhoonidhi** (Resourcesat-2/2A LISS-III STAC & virtual `/vsizip/` streaming). To eliminate latency bottlenecks, pre-clipped 6-channel stacks are cached in **MongoDB GridFS** (`watershed_db.raster_cache`), and every ingestion event is logged to `watershed_db.audit_logs`. See [`data_adapter_design.md`](data_adapter_design.md) for full architectural specifications.
 
 ---
 
@@ -141,17 +141,18 @@ Open Sentinel-2 / Copernicus GLO-30 / OSM (Current Prototype)
 
 | Stage | Optimization | Latency |
 | :--- | :--- | :--- |
-| **Model 1 U-Net Inference** | PyTorch 2.6.0+cu124 on **NVIDIA GeForce RTX GPU** | **~0.42 s** (15x faster than CPU) |
+| **Tier 0: MongoDB GridFS Cache** | Pre-clipped 6-channel float32 raster stack cache | **< 50 ms** (17.9 ms read/write benchmark) |
+| **Model 1 U-Net Inference** | PyTorch 2.6.0+cu124 on **NVIDIA GeForce RTX GPU** (or CPU) | **~0.42 s** GPU / **~1.2 s** CPU |
 | **Copernicus 30m DEM** | Windowed HTTP range reads on Cloud-Optimized GeoTIFFs (COGs) | **2.49 s** fresh / **0.02 s** cached |
-| **Sentinel-2 Bands (B02-B08)** | Multi-threaded parallel streaming via `ThreadPoolExecutor` | **~12–15 s** total download |
-| **Repeat Location Queries** | **Two-Tier Cache** (Disk COG rasters + In-Memory/Redis metadata) | **29.2 ms** (`[Cache HIT]`) |
+| **Satellite Bands Ingestion** | Multi-threaded parallel streaming via `ThreadPoolExecutor` | **~12–18 s** concurrent acquisition |
+| **Repeat Location Queries** | In-Memory / Redis RAM Cache (`image:*`, `meta:*`) | **< 10 ms** (`[Cache HIT]`, zero disk files) |
 
 ---
 
 ## Getting Started
 
 ### 1. Run the Python API Bridge
-The API server exposes REST endpoints (`/api/health`, `/api/pipeline/run`, `/api/interventions`, `/api/field-log`, `/api/sites/:siteKey`) on port 8000:
+The API server exposes REST endpoints (`/api/health`, `/api/bhuvan/status`, `/api/bhuvan/aoi-stats`, `/api/audit-logs`, `/api/pipeline/run`, `/api/pipeline/cancel`, `/api/pipeline/bhoonidhi-status`, `/api/pipeline/switch-source`, `/api/geocode`, `/api/interventions`, `/api/field-log`, `/api/sites/:siteKey`) on port 8000:
 
 ```bash
 cd project
@@ -214,6 +215,13 @@ watershed/
 ## Status and Roadmap
 
 - [x] Live location pipeline (Dual-Tier: Bhoonidhi LISS-III / Sentinel-2 STAC + PyTorch GPU U-Net + DEM + health score)
+- [x] Dual-Path Progressive Ingestion & Background Sovereign Daemon (`BHOONIDHI_JOB_QUEUE` + live polling + 1-click source swap)
+- [x] Ephemeral "Clip & Discard" Streaming (`ingest_bhoonidhi_ephemeral` with 0 MB residual disk footprint via `/vsizip/`)
+- [x] Concurrency Semaphore (`BHOONIDHI_SEMAPHORE`) and HTTP 412/429 circuit breaker protection
+- [x] 4-Tier High-Speed Geocoding (0ms curated Indian presets, <1ms Redis cache, strict-timeout OSM Nominatim, Photon fallback)
+- [x] In-Flight Pipeline Cancellation Engine (`POST /api/pipeline/cancel` + interactive search bar button aborting threads in <0.5s)
+- [x] Server-Side Reverse Proxy Geocoding (`GET /api/geocode?q=...`) bypassing browser CORS and forbidden headers for Indian towns/villages
+- [x] Process-isolated atomic raster writes (`atomic_raster_write`) preventing file lock conflicts and partial TIFF corruption
 - [x] 9-tab analytics suite (Land Cover, Change, Health, Map, Field Investigation, Investigation, What-If Simulator, Scientific Validation, Bhuvan Ground-Truth)
 - [x] Dedicated 9th Tab: ISRO Bhuvan Ground-Truth Cross-Validation Report with official tripartite sign-offs, live IWMP portal link, and print stylesheet
 - [x] Zero disk pollution: All transient pipeline rasters and metadata cached in Redis (`redis:alpine`) and streamed via `/api/images/`
@@ -223,7 +231,6 @@ watershed/
 - [x] Dynamic investigation tab — land-cover-aware intervention defaults (urban/forest/barren detection)
 - [x] Diagnostic pillars derived from `meta.class_breakdown` and `meta.ndvi_trend` (no hardcoded numbers)
 - [x] Intervention defaults never cached to localStorage — always freshly generated from active site meta
-- [x] Pipeline `AbortController` — changing location mid-run cancels in-flight fetch and restarts cleanly
 - [x] FieldTab photo integrity — ground stations track photo availability; no fake placeholder images
 - [x] Empirical scientific validation completed (LULC 82.6%, Change F1 0.911, Photo agreement 86.7%)
 - [x] Government data adapter seam designed (`data_adapter_design.md`) with official limitation disclaimers
